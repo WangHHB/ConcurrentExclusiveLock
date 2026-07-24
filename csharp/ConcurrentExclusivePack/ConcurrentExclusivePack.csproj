@@ -12,7 +12,7 @@
     <Authors>YiBo Wang</Authors>
     <Description>A high-performance non-recursive Concurrent/Exclusive synchronization protocol for entity-level state, featuring preemptive Exclusive access, in-place upgrade and downgrade, and ContextID/EpochID support.</Description>
     <Copyright>Copyright © 2026 YiBo Wang</Copyright>
-    <PackageTags>concurrency;synchronization;lock;exclusive;multithreading;threading;unity</PackageTags>
+    <PackageTags>concurrency;synchronization;lock;read;write;read-write-lock;reader-writer-lock;rwlock;readerwriterlockslim;multithreading;thread-safe;concurrent;exclusive;upgradeable-lock;preemptive-lock;entity-lock;game-server;unity;actor</PackageTags>
 
     <PackageProjectUrl>https://github.com/WangHHB/ConcurrentExclusiveLock</PackageProjectUrl>
     <RepositoryUrl>https://github.com/WangHHB/ConcurrentExclusiveLock</RepositoryUrl>
