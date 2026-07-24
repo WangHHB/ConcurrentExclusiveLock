@@ -678,7 +678,6 @@ The current C# / .NET implementation is the semantic reference. Implementations 
 - **Project**: ConcurrentExclusiveLock
 - **Abbreviation**: CEL
 - **Author**: 王弈博 (YiBoWang)
-- **Version**: 1.0.0
 - **Original implementation**: C# / .NET
 - **Compatibility target**: .NET 8.0, .NET Standard 2.1
 - **Intended environments**: .NET, Unity3D, game servers, and other fine-grained state systems

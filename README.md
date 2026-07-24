@@ -700,7 +700,6 @@ Pipeline 已完成约 **240 小时随机调用压力测试**。
 - **项目名称**：ConcurrentExclusiveLock
 - **简称**：CEL
 - **作者**：王弈博（YiBoWang）
-- **版本**：1.0.0
 - **原始实现**：C# / .NET
 - **兼容目标**：.NET 8.0、.NET Standard 2.1
 - **适用环境**：.NET、Unity3D、游戏服务器及其他细粒度状态系统
