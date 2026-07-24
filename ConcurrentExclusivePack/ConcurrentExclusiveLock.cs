@@ -502,7 +502,7 @@ namespace IntomicLib
                                 return 0;
                             }
                         }
-                        else 
+                        else
                         {
                             Thread.Yield();
                         }
