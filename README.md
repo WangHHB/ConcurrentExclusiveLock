@@ -452,6 +452,6 @@ Pipeline 已完成约 240 小时随机调用压力测试。
 原始实现：C# / .NET
 兼容目标：.NET Standard 2.1
 适用环境：.NET、Unity3D、游戏服务器及其他细粒度状态系统
-GitHub：WangHHB/ConcurrentExclusiveLock
+GitHub：https://github.com/WangHHB/ConcurrentExclusiveLock
 
 A compact, high-performance Concurrent/Exclusive synchronization protocol for entity-level state objects, featuring preemptive Exclusive access, in-place upgrade/downgrade, and ContextID/EpochID support.
