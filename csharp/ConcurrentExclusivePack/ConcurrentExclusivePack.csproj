@@ -1,12 +1,79 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFrameworks>netstandard2.1;net8.0</TargetFrameworks>
     <ImplicitUsings>disable</ImplicitUsings>
     <Nullable>disable</Nullable>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <Version>1.0.0</Version>
-    <Authors>YiBoWang</Authors>
+
+    <Version>1.0.2</Version>
+    <PackageId>ConcurrentExclusiveLock</PackageId>
+    <Title>ConcurrentExclusiveLock</Title>
+    <Authors>YiBo Wang</Authors>
+    <Description>A high-performance non-recursive Concurrent/Exclusive synchronization protocol for entity-level state, featuring preemptive Exclusive access, in-place upgrade and downgrade, and ContextID/EpochID support.</Description>
+    <Copyright>Copyright © 2026 YiBo Wang</Copyright>
+    <PackageTags>concurrency;synchronization;lock;exclusive;multithreading;threading;unity</PackageTags>
+
+    <PackageProjectUrl>https://github.com/WangHHB/ConcurrentExclusiveLock</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/WangHHB/ConcurrentExclusiveLock</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README_EN.md</PackageReadmeFile>
+    <PackageReleaseNotes>Initial NuGet package release for version 1.0.1.</PackageReleaseNotes>
+
+    <IsPackable>true</IsPackable>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <Deterministic>true</Deterministic>
+
+    <PackageOutputPath>$(MSBuildProjectDirectory)\..\..\artifacts</PackageOutputPath>
+
+    <TargetsForTfmSpecificBuildOutput>
+      $(TargetsForTfmSpecificBuildOutput);IncludeLocalizedXmlDocumentation
+    </TargetsForTfmSpecificBuildOutput>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README_EN.md" Pack="true" PackagePath="\" Link="README_EN.md" />
+
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="\" Link="LICENSE" />
+  </ItemGroup>
+
+  <!--
+    Source comments remain Chinese and the compiler still validates/generates XML.
+    Before packing, the generated XML next to the DLL is replaced by the reviewed
+    English XML. The reviewed Chinese XML is copied into the zh-Hans culture folder.
+  -->
+  <Target Name="PrepareLocalizedXmlDocumentation" AfterTargets="Build" Condition="'$(TargetFramework)' != ''">
+
+    <PropertyGroup>
+      <EnglishXmlDocumentation>$(MSBuildProjectDirectory)\Documentation\ConcurrentExclusivePack.en.xml</EnglishXmlDocumentation>
+      <ChineseXmlDocumentation>$(MSBuildProjectDirectory)\Documentation\ConcurrentExclusivePack.zh-Hans.xml</ChineseXmlDocumentation>
+    </PropertyGroup>
+
+    <Error Condition="!Exists('$(EnglishXmlDocumentation)')" Text="Missing English XML documentation: $(EnglishXmlDocumentation)" />
+
+    <Error Condition="!Exists('$(ChineseXmlDocumentation)')" Text="Missing Chinese XML documentation: $(ChineseXmlDocumentation)" />
+
+    <MakeDir Directories="$(TargetDir)zh-Hans" />
+
+    <Copy SourceFiles="$(EnglishXmlDocumentation)" DestinationFiles="$(TargetDir)$(AssemblyName).xml" />
+
+    <Copy SourceFiles="$(ChineseXmlDocumentation)" DestinationFiles="$(TargetDir)zh-Hans\$(AssemblyName).xml" />
+  </Target>
+
+  <!-- Adds lib/<TFM>/zh-Hans/ConcurrentExclusivePack.xml to the package. -->
+  <Target Name="IncludeLocalizedXmlDocumentation" DependsOnTargets="Build;PrepareLocalizedXmlDocumentation" Condition="'$(TargetFramework)' != ''">
+
+    <ItemGroup>
+      <BuildOutputInPackage Include="$(TargetDir)zh-Hans\$(AssemblyName).xml">
+        <FinalOutputPath>$(TargetDir)zh-Hans\$(AssemblyName).xml</FinalOutputPath>
+        <TargetPath>zh-Hans\$(AssemblyName).xml</TargetPath>
+      </BuildOutputInPackage>
+    </ItemGroup>
+  </Target>
 
 </Project>

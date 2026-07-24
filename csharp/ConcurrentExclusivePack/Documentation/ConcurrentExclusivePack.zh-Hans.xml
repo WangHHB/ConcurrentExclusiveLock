@@ -1,0 +1,1034 @@
+<?xml version="1.0"?>
+<doc>
+    <assembly>
+        <name>ConcurrentExclusivePack</name>
+    </assembly>
+    <members>
+        <member name="T:IntomicLib.ConcurrentExclusiveLock">
+             <summary>
+             提供基于 Concurrent / Exclusive 访问权限的高性能非递归同步锁。
+             </summary>
+             <remarks>
+             此锁表达的是访问权限，而不是读写意图。
+             Concurrent 表示当前操作可以与其他 Concurrent 操作同时进入；
+             Exclusive 表示当前操作必须独占进入，不能与任何其他操作并发。
+             此锁不提供递归式嵌套特权。
+            
+             此锁支持抢占式 Exclusive、Concurrent 原地升级为 Exclusive、
+             Exclusive 原地降级为 Concurrent，以及状态和竞争度快照观察。
+            
+             Concurrent 普通获取与释放以轻量原子计数为主，不进入 Monitor 排序队列。
+             普通 Exclusive 获取，以及从 Concurrent 原地升级到 Exclusive 的转换，
+             会借用 Monitor 的互斥、等待、唤醒和排序机制参与排他调度。
+            
+             此锁不保证严格 FIFO 顺序，也不承诺比 Monitor 更强的调度公平性。
+             线程实际运行顺序仍会受到操作系统调度、CPU 拓扑、缓存状态、系统负载
+             以及调用方业务时长影响。
+            
+             此类型适用于同步、非递归、高并发共享状态场景，
+             尤其适合大量细粒度锁对象并存的服务端场景。
+            
+             此类型是值类型，默认初始化的实例不可用。
+             请使用 <see cref="M:IntomicLib.ConcurrentExclusiveLock.Create"/> 创建实例。
+             </remarks>
+        </member>
+        <member name="F:IntomicLib.ConcurrentExclusiveLock.MaxConcurrent">
+            <summary>
+            锁能支持的最大并发能力
+            </summary>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLock.Create">
+             <summary>
+             创建一个已正确初始化的 <see cref="T:IntomicLib.ConcurrentExclusiveLock"/> 实例。
+             </summary>
+             <remarks>
+             <see cref="T:IntomicLib.ConcurrentExclusiveLock"/> 是值类型，默认初始化得到的实例不可用。
+             请始终使用此方法创建新的实例。
+            
+             复制返回的 <see cref="T:IntomicLib.ConcurrentExclusiveLock"/> 值不会复制锁状态；
+             复制后的值仍会引用同一个内部锁状态。
+             </remarks>
+        </member>
+        <member name="P:IntomicLib.ConcurrentExclusiveLock.ObservedState">
+             <summary>
+             锁当前状态的观察快照。
+             </summary>
+             <remarks>
+             该值仅表示读取瞬间观察到的锁状态，不能作为准确的锁状态判断，仅用于诊断、监控。
+            
+             当抢占式 Exclusive 请求进入竞争窗口后，即使它仍在等待当前 Concurrent 释放，
+             该值也可能观察为 Exclusive。
+             因此，ObservedState 表示当前锁的访问倾向或转换状态，
+             不表示当前已经有线程正在执行 Exclusive 业务代码。
+             </remarks>
+        </member>
+        <member name="P:IntomicLib.ConcurrentExclusiveLock.ObservedContention">
+             <summary>
+             获取当前锁竞争压力的观察指标。
+             </summary>
+             <remarks>
+             该值是读取瞬间观察到的竞争压力快照，仅用于诊断、监控或调度参考。
+            
+             因此，纯 Concurrent 场景下该值为 0；
+             一旦存在 Exclusive 压力，则返回当前观察到的 Concurrent + Exclusive 压力规模。
+             </remarks>
+        </member>
+        <member name="P:IntomicLib.ConcurrentExclusiveLock.ContextID">
+             <summary>
+             原子获取或设置与当前锁关联的业务上下文 ID。
+             </summary>
+             <remarks>
+             此属性用于记录锁协议之外的附加业务状态，例如由业务层标识当前上下文。
+             从而识别同一上下文并避免重复权限。
+            
+             直接设置此属性会无条件覆盖当前 ContextID。
+             如果需要判断是否切换到不同上下文，请使用 <see cref="M:IntomicLib.ConcurrentExclusiveLock.SwitchContextID(System.Int32)"/>。
+            
+             值为 0 表示未设置上下文 ID。
+             非零值的含义、分配、校验及清理均由调用方负责。
+             </remarks>
+        </member>
+        <member name="P:IntomicLib.ConcurrentExclusiveLock.EpochID">
+             <summary>
+             原子获取或设置与当前锁关联的业务阶段 ID。
+             </summary>
+             <remarks>
+             此属性用于记录锁协议之外的附加业务状态，例如标识排他区域的生命周期阶段、
+             数据版本、处理批次或其他业务阶段。
+            
+             直接设置此属性会无条件覆盖当前 EpochID，
+             不会检查阶段是否向前推进，也不会阻止回退或重置。
+             如果需要保证阶段 ID 只能递增，请使用 <see cref="M:IntomicLib.ConcurrentExclusiveLock.RaiseEpochID(System.Int32)"/>。
+            
+             值为 0 表示未设置阶段 ID。
+             非零值的含义、分配、校验及清理均由调用方负责。
+             </remarks>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLock.SwitchContextID(System.Int32)">
+            <summary>
+            设置新的 ContextID，并返回本次设置是否改变了原值。
+            如果新值与原值相同，则返回 false。
+            </summary>
+            <remarks>
+            此方法只切换业务上下文 ID。
+            </remarks>
+            <param name="newContextID">新的上下文 ID。</param>
+            <returns>如果 ContextID 被设置为不同的新值，则返回 true；如果新值与原值相同，则返回 false。</returns>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLock.RaiseEpochID(System.Int32)">
+            <summary>
+            尝试将 EpochID 推进到新的阶段，并返回本次推进是否成功。
+            如果新值小于或等于当前值，则返回 false。
+            </summary>
+            <remarks>
+            此方法只推进业务阶段 ID。
+            </remarks>
+            <param name="newEpochID">新的阶段 ID，必须大于当前 EpochID 才能推进成功。</param>
+            <returns>如果 EpochID 成功推进到更大的新值，则返回 true；否则返回 false。</returns>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLock.AcquireConcurrent(System.Int32)">
+             <summary>
+             等待获得 Concurrent 访问权限。
+             </summary>
+             <remarks>
+             此方法会在允许进入 Concurrent 状态时返回。
+            
+             获得 Concurrent 后，调用者可以在后续调用 <c>ReleaseConcurrent()</c> 手动释放；
+             如果之后通过其他协议转换了当前持有状态，则应按转换后的状态释放。
+            
+             <paramref name="maxConcurrent"/> 用于限制本次允许进入的最大 Concurrent ID。
+             <paramref name="maxConcurrent"/> 不能小于 1。
+             </remarks>
+             <param name="maxConcurrent">
+             最大允许的 Concurrent ID。
+             有效返回值范围为 [1, maxConcurrent]。
+             </param>
+             <returns>
+             返回本次获得的 Concurrent ID，范围为 [1, maxConcurrent]。
+             </returns>
+             <exception cref="T:System.ArgumentException"></exception>
+             <exception cref="T:IntomicLib.ConcurrentExclusiveLockCapacityExceededException">
+             当运行时同时存在的 Concurrent 数量超过内部限制时抛出。
+             当前实现支持 31-bit 并发计数空间，该限制在实际运行环境中基本不可能触发。
+             </exception>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLock.TryAcquireConcurrent(System.Int32)">
+             <summary>
+             尝试获得 Concurrent 访问权限。
+             </summary>
+             <remarks>
+             此方法只尝试一次当前是否可以进入 Concurrent 状态，不会等待锁状态变化。
+            
+             返回值不为 0 表示已获得 Concurrent，调用者可以在后续调用 <c>ReleaseConcurrent()</c> 手动释放；
+             如果之后通过其他协议转换了当前持有状态，则应按转换后的状态释放。
+            
+             <paramref name="maxConcurrent"/> 用于限制本次允许进入的最大 Concurrent ID。
+             <paramref name="maxConcurrent"/> 不能小于 1。
+             </remarks>
+             <param name="maxConcurrent">
+             最大允许的 Concurrent ID。
+             有效成功返回值范围为 [1, maxConcurrent]。
+             </param>
+             <returns>
+             返回本次获得的 Concurrent ID，范围为 [1, maxConcurrent]；
+             返回 0 表示未获得 Concurrent。
+             </returns>
+             <exception cref="T:System.ArgumentException"></exception>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLock.TryAcquireConcurrent(System.Int32,System.Int32)">
+             <summary>
+             在指定时间内尝试获得 Concurrent 访问权限。
+             </summary>
+             <remarks>
+             此方法会在指定超时时间内等待锁进入可获得 Concurrent 的状态。
+            
+             返回值不为 0 表示已获得 Concurrent，调用者可以在后续调用 <c>ReleaseConcurrent()</c> 手动释放；
+             如果之后通过其他协议转换了当前持有状态，则应按转换后的状态释放。
+            
+             <paramref name="millisecondsTimeout"/> 为 0 时只尝试一次，不会等待；小于 0 时表示无限等待。
+            
+             <paramref name="maxConcurrent"/> 用于限制本次允许进入的最大 Concurrent ID。
+             <paramref name="maxConcurrent"/> 不能小于 1。
+             如果 <paramref name="millisecondsTimeout"/> 大于等于 0，则最多等待到超时并返回 0；
+             如果 <paramref name="millisecondsTimeout"/> 小于 0，则会一直等待。
+             </remarks>
+             <param name="millisecondsTimeout">
+             等待获得 Concurrent 的最长毫秒数。
+             0 表示只尝试一次，不等待；小于 0 表示无限等待。
+             </param>
+             <param name="maxConcurrent">
+             最大允许的 Concurrent ID。
+             有效成功返回值范围为 [1, maxConcurrent]。
+             </param>
+             <returns>
+             返回本次获得的 Concurrent ID，范围为 [1, maxConcurrent]；
+             返回 0 表示未在指定时间内获得 Concurrent。
+             </returns>
+             <exception cref="T:System.ArgumentException"></exception>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLock.ReleaseConcurrent">
+             <summary>
+             释放当前持有的一次 Concurrent 访问权限。
+             </summary>
+             <remarks>
+             此方法必须在当前 scope 已持有 Concurrent 的上下文中调用。
+            
+             调用后，当前 scope 不再持有该次 Concurrent 访问权限，
+             不应继续执行任何依赖该次 Concurrent 权限的业务代码。
+             </remarks>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLock.AcquireExclusive">
+             <summary>
+             等待获得 Exclusive 访问权限。
+             </summary>
+             <remarks>
+             此方法用于请求抢占式 Exclusive。
+            
+             请求发起后，锁会阻止新的 Concurrent 进入，
+             并等待当前已进入的 Concurrent 释放。
+             当锁进入 Exclusive 状态后，此方法返回。
+            
+             获得 Exclusive 后，调用者可以在后续调用 <c>ReleaseExclusive()</c> 手动释放，
+             或通过 <c>ExclusiveToConcurrent()</c> 降级为 Concurrent 后再按 Concurrent 协议释放；
+             </remarks>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLock.TryAcquireExclusive(System.Boolean)">
+             <summary>
+             尝试获得 Exclusive 访问权限。
+             </summary>
+             <remarks>
+             当 <paramref name="preemptConcurrent"/> 为 true 时，
+             此方法会以抢占式方式请求 Exclusive。
+             如果当前存在 Concurrent，锁会阻止新的 Concurrent 进入，
+             并参与排他竞争；
+             成功的 Exclusive 请求会等待当前已进入的 Concurrent 释放后获得 Exclusive。
+            
+             当 <paramref name="preemptConcurrent"/> 为 false 时，
+             此方法不会抢占 Concurrent。
+             只要当前存在 Concurrent 或 Exclusive，就会立即返回 false。
+            
+             返回 true 表示已获得 Exclusive，调用者可以在后续调用 <c>ReleaseExclusive()</c> 手动释放，
+             或通过 <c>ExclusiveToConcurrent()</c> 降级为 Concurrent 后再按 Concurrent 协议释放；
+            
+             返回 false 表示未获得 Exclusive，调用者不应执行任何依赖 Exclusive 权限的业务代码。
+             </remarks>
+             <param name="preemptConcurrent">
+             true 表示允许抢占 Concurrent；
+             false 表示不抢占 Concurrent，只有锁处于 Idle 状态时才可能获得 Exclusive。
+             </param>
+             <returns>
+             true 表示已获得 Exclusive；
+             false 表示未获得 Exclusive。
+             </returns>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLock.TryAcquireExclusive(System.Int32)">
+             <summary>
+             在指定时间内尝试获得 Exclusive 访问权限。
+             </summary>
+             <remarks>
+             此方法会在指定超时时间内尝试获得抢占式 Exclusive。
+            
+             <paramref name="millisecondsTimeout"/> 为 0 时只尝试一次，不会等待；
+             小于 0 时表示无限等待。
+            
+             返回 true 表示已获得 Exclusive，调用者可以在后续调用 <c>ReleaseExclusive()</c> 手动释放，
+             或通过 <c>ExclusiveToConcurrent()</c> 降级为 Concurrent 后再按 Concurrent 协议释放；
+            
+             返回 false 表示未在指定时间内获得 Exclusive，
+             调用者不应执行任何依赖 Exclusive 权限的业务代码。
+             </remarks>
+             <param name="millisecondsTimeout">
+             等待获得 Exclusive 的最长毫秒数。
+             0 表示只尝试一次，不等待；小于 0 表示无限等待。
+             </param>
+             <returns>
+             true 表示已获得 Exclusive；
+             false 表示未在指定时间内获得 Exclusive。
+             </returns>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLock.ReleaseExclusive">
+             <summary>
+             释放当前持有的 Exclusive 访问权限。
+             </summary>
+             <remarks>
+             此方法必须在当前 scope 已持有 Exclusive 的上下文中调用。
+            
+             调用后，当前 scope 不再持有 Exclusive 访问权限，
+             不应继续执行任何依赖 Exclusive 权限的业务代码。
+            
+             释放完成后，锁会恢复正常竞争状态，
+             等待中的 Concurrent 或 Exclusive 将按照锁的竞争规则继续尝试进入。
+            
+             如果调用者希望在结束 Exclusive 后继续保持 Concurrent 访问权限，
+             应调用 <c>ExclusiveToConcurrent()</c>，
+             而不是调用此方法。
+             </remarks>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLock.ExclusiveToConcurrent">
+             <summary>
+             将当前持有的 Exclusive 访问权限降级为 Concurrent 访问权限。
+             </summary>
+             <remarks>
+             此方法必须在当前 scope 已持有 Exclusive 的上下文中调用。
+            
+             调用后，当前 scope 不再持有 Exclusive 访问权限，
+             不应继续执行任何依赖 Exclusive 权限的业务代码。
+            
+             当前 scope 会继续持有 Concurrent 访问权限，
+             后续可以调用 <c>ReleaseConcurrent()</c> 手动释放；
+             
+             此方法用于在完成独占修改后，继续保持一个连续的 Concurrent 访问上下文，
+             避免先释放 Exclusive 再重新申请 Concurrent 造成访问窗口。
+             </remarks>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLock.TryConcurrentToExclusiveWithSwitchContextID(System.Int32)">
+             <summary>
+             在持有 Concurrent 权限的情况下，尝试通过 SwitchContextID 将当前权限升级为 Exclusive。
+             当多个 Concurrent 持有者以相同 newContextID 同时调用时，只有成功切换 ContextID 的持有者能够升级。
+             当调用者使用不同 newContextID 时，多个调用者可能分别成功，但成功后的 Exclusive 执行区仍会被隔离排序。
+             升级成功后，当前 scope 持有 Exclusive 权限；升级失败时，当前 scope 持有的 Concurrent 权限会被自动释放。
+             </summary>
+             <remarks>
+             此方法必须在当前 scope 已持有 Concurrent 权限的上下文中调用。
+            
+             调用后，锁会阻止新的 Concurrent 进入当前转换窗口，
+             成功升级的调用者会按 Exclusive 语义隔离执行。
+             ContextID 的切换是否成功由 <c>SwitchContextID(newContextID)</c> 决定。
+            
+             成功后，调用者可以调用 <c>ReleaseExclusive()</c> 手动释放；
+             失败后，原 Concurrent 权限已经释放，不应再调用 <c>ReleaseConcurrent()</c>。
+             </remarks>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLock.TryConcurrentToExclusiveWithRaiseEpochID(System.Int32)">
+             <summary>
+             在持有 Concurrent 权限的情况下，尝试通过 RaiseEpochID 将当前权限升级为 Exclusive。
+             仅当 newEpochID 大于当前 EpochID 时，调用者才可能推进阶段并升级成功。
+             当 newEpochID 小于或等于当前 EpochID 时，升级失败，EpochID 保持不变。
+             多个调用者使用递增的不同 newEpochID 时，多个调用者可能分别成功，但成功后的 Exclusive 执行区仍会被隔离排序。
+             升级成功后，当前 scope 持有 Exclusive 权限；升级失败时，当前 scope 持有的 Concurrent 权限会被自动释放。
+             </summary>
+             <remarks>
+             此方法必须在当前 scope 已持有 Concurrent 权限的上下文中调用。
+            
+             此方法适合将 EpochID 用作生命周期、版本号或阶段号的场景。
+             EpochID 只允许向更大的值推进，不允许保持不变或回退。
+             调用后，锁会阻止新的 Concurrent 进入当前转换窗口，
+             成功升级的调用者会按 Exclusive 语义隔离执行。
+            
+             成功后，调用者可以调用 <c>ReleaseExclusive()</c> 手动释放；
+             失败后，原 Concurrent 权限已经释放，不应再调用 <c>ReleaseConcurrent()</c>。
+             </remarks>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLock._FreeRelease(System.Int64)">
+            <summary>
+            辅助方法
+            </summary>
+            <param name="counter"></param>
+        </member>
+        <member name="T:IntomicLib.ConcurrentExclusiveLockState">
+            <summary>
+            ConcurrentExclusiveLock锁状态
+            </summary>
+        </member>
+        <member name="F:IntomicLib.ConcurrentExclusiveLockState.Idle">
+            <summary>
+            空闲
+            </summary>
+        </member>
+        <member name="F:IntomicLib.ConcurrentExclusiveLockState.Concurrent">
+            <summary>
+            并发中
+            </summary>
+        </member>
+        <member name="F:IntomicLib.ConcurrentExclusiveLockState.Exclusive">
+            <summary>
+            排他中
+            </summary>
+        </member>
+        <member name="T:IntomicLib.ConcurrentExclusiveLockCapacityExceededException">
+            <summary>
+            ConcurrentExclusiveLock运行时超出最大并发处理能力。
+            一般绝无可能发生。
+            </summary>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockCapacityExceededException.#ctor">
+            <summary>
+            
+            </summary>
+        </member>
+        <member name="T:IntomicLib.ConcurrentExclusiveLockPipeline">
+             <summary>
+             <see cref="T:IntomicLib.ConcurrentExclusiveLock"/> 的访问权限流水线。
+             </summary>
+             <remarks>
+             Pipeline 用一组连续的段描述业务流程，每个段声明自己需要的访问权限。
+             执行过程中会根据上一段成功持有的访问权限，自动完成释放、重新申请或原地转换。
+            
+             Concurrent 表示一段独立的普通并发权限；连续普通 Concurrent 段会切开并重新申请。
+             ConvergeConcurrent 表示延续或形成 Concurrent 上下文；如果上一段是 Exclusive，则原地降级为 Concurrent。
+            
+             TryApplyIDConvergeExclusive 表示先尝试应用业务 ID，并在成功后收敛到 Exclusive：
+             如果上一段是 Concurrent，则根据 ID 类型调用对应的原地升级方法；
+             如果上一段是 Exclusive，则尝试在当前 Exclusive 上下文中应用业务 ID；
+             如果当前没有访问权限，则先尝试应用业务 ID，成功后再获取 Exclusive。
+            
+             Exclusive 段表示重新申请一段独立的 Exclusive 权限；
+             如果上一段已经持有 Exclusive，也会先释放再重新申请，让其他竞争者有机会进入。
+             如果希望在已有 Exclusive 上下文中连续执行并受业务 ID 控制，请使用 TryApplyIDConvergeExclusive。
+            
+             TryConcurrent、TestExclusive、TryExclusive 或 TryApplyIDConvergeExclusive 未获得目标执行条件时，
+             当前段不会执行；流水线不会抛出异常，也不会结束，
+             而是以 None 状态继续处理后续段。
+             </remarks>
+        </member>
+        <member name="F:IntomicLib.ConcurrentExclusiveLockPipeline.Locker">
+            <summary>
+            当前流水线绑定的锁实例。
+            </summary>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockPipeline.#ctor(IntomicLib.ConcurrentExclusiveLock)">
+            <summary>
+            创建绑定到指定锁实例的访问权限流水线。
+            </summary>
+            <param name="locker">流水线要使用的锁实例。</param>
+            <remarks>
+            同一个 Pipeline 会一直复用该锁实例；多个 Pipeline 也可以绑定到同一个锁实例。
+            </remarks>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockPipeline.DoPipelineAsync(IntomicLib.ConcurrentExclusiveLockSegment[])">
+            <summary>
+            在线程池中执行一次同步 Pipeline。
+            </summary>
+            <remarks>
+            此方法不会让 <see cref="T:IntomicLib.ConcurrentExclusiveLockSegment"/> 变为异步段，也不会在段内部执行异步等待。
+            它只是通过 <see cref="M:System.Threading.Tasks.Task.Run(System.Action)"/> 将同步 <see cref="M:IntomicLib.ConcurrentExclusiveLockPipeline.DoPipeline(IntomicLib.ConcurrentExclusiveLockSegment[])"/> 调度到线程池执行。
+            如果调用者已经位于工作线程、线程池线程或服务端请求线程中，通常应直接调用 <see cref="M:IntomicLib.ConcurrentExclusiveLockPipeline.DoPipeline(IntomicLib.ConcurrentExclusiveLockSegment[])"/>。
+            </remarks>
+            <param name="segments">要顺序执行的 Pipeline 段。</param>
+            <returns>表示本次 Pipeline 执行过程的任务。</returns>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockPipeline.DoPipeline(IntomicLib.ConcurrentExclusiveLockSegment[])">
+             <summary>
+             按顺序执行一组 Pipeline 段。
+             </summary>
+             <remarks>
+             每个段声明自己需要的访问权限，Pipeline 会根据上一段成功持有的权限自动选择对应处理方式。
+            
+             普通 <see cref="F:IntomicLib.ConcurrentExclusiveAccessMode.Concurrent"/> 和 <see cref="F:IntomicLib.ConcurrentExclusiveAccessMode.Exclusive"/>
+             表示独立权限段；即使上一段持有同类权限，也会切开后重新申请。
+            
+             <see cref="F:IntomicLib.ConcurrentExclusiveAccessMode.ConvergeConcurrent"/> 用于延续或形成 Concurrent 上下文；
+             如果上一段是 Exclusive，会原地降级为 Concurrent。
+            
+             <see cref="F:IntomicLib.ConcurrentExclusiveAccessMode.TryApplyIDConvergeExclusive"/> 的 Try 语义针对业务 ID 更新。
+             只有业务 ID 应用成功，并且最终进入或保持 Exclusive 权限时，当前段才会执行。
+            
+             Try 类型段未获得目标执行条件时，当前段不会执行，后续段继续处理；
+             此时 Pipeline 会视为当前不再持有任何访问权限，后续段将从 None 状态继续解释。
+             </remarks>
+             <param name="segments">要顺序执行的 Pipeline 段。</param>
+        </member>
+        <member name="T:IntomicLib.ConcurrentExclusiveAccessMode">
+            <summary>
+            Pipeline 段声明的访问权限模式。
+            </summary>
+            <remarks>
+            该枚举只描述当前段希望以哪种访问权限执行。
+            </remarks>
+        </member>
+        <member name="F:IntomicLib.ConcurrentExclusiveAccessMode.None">
+            <summary>
+            无访问权限。
+            </summary>
+            <remarks>
+            执行当前段前会释放上一段仍然持有的权限，当前段在无锁状态下运行。
+            </remarks>
+        </member>
+        <member name="F:IntomicLib.ConcurrentExclusiveAccessMode.Concurrent">
+            <summary>
+            获取一段独立的 Concurrent 权限。
+            </summary>
+            <remarks>
+            如果上一段已经持有 Concurrent，也会先释放再重新申请。
+            如果希望延续当前 Concurrent 上下文，请使用 <see cref="F:IntomicLib.ConcurrentExclusiveAccessMode.ConvergeConcurrent"/>。
+            </remarks>
+        </member>
+        <member name="F:IntomicLib.ConcurrentExclusiveAccessMode.TryConcurrent">
+            <summary>
+            尝试获取一段独立的 Concurrent 权限。
+            </summary>
+            <remarks>
+            如果未获得 Concurrent，当前段不会执行，并以 None 状态继续后续流水线。
+            如果上一段仍持有权限，会先释放上一段权限再尝试获取。
+            </remarks>
+        </member>
+        <member name="F:IntomicLib.ConcurrentExclusiveAccessMode.Exclusive">
+            <summary>
+            获取一段独立的 Exclusive 权限。
+            </summary>
+            <remarks>
+            Exclusive 表示一段独立的排他权限。
+            如果上一段已经持有 Exclusive，仍会先释放再重新申请。
+            如果希望在已有 Exclusive 上下文中连续执行并受业务 ID 控制，请使用 <see cref="F:IntomicLib.ConcurrentExclusiveAccessMode.TryApplyIDConvergeExclusive"/>。
+            </remarks>
+        </member>
+        <member name="F:IntomicLib.ConcurrentExclusiveAccessMode.TestExclusive">
+            <summary>
+            仅在锁处于 Idle 时尝试获取 Exclusive 权限。
+            </summary>
+            <remarks>
+            此模式不抢占已有 Concurrent。
+            如果当前存在 Concurrent 或 Exclusive，当前段不会执行，并以 None 状态继续后续流水线。
+            如果上一段仍持有权限，会先释放上一段权限再尝试获取。
+            </remarks>
+        </member>
+        <member name="F:IntomicLib.ConcurrentExclusiveAccessMode.TryExclusive">
+            <summary>
+            抢占式尝试获取 Exclusive 权限。
+            </summary>
+            <remarks>
+            此模式允许阻止新的 Concurrent 进入，并尝试获得 Exclusive。
+            如果未获得 Exclusive，当前段不会执行，并以 None 状态继续后续流水线。
+            如果上一段仍持有权限，会先释放上一段权限再尝试获取。
+            </remarks>
+        </member>
+        <member name="F:IntomicLib.ConcurrentExclusiveAccessMode.ConvergeConcurrent">
+            <summary>
+            延续或获取 Concurrent 权限。
+            </summary>
+            <remarks>
+            如果上一段已经持有 Concurrent，则延续当前 Concurrent 上下文并直接执行当前段。
+            如果上一段持有 Exclusive，则调用 ExclusiveToConcurrent() 原地降级后执行当前段。
+            如果当前没有访问权限，则重新申请普通 Concurrent 权限。
+            </remarks>
+        </member>
+        <member name="F:IntomicLib.ConcurrentExclusiveAccessMode.TryApplyIDConvergeExclusive">
+             <summary>
+             尝试应用业务 ID，并在成功后收敛到 Exclusive 权限。
+             </summary>
+             <remarks>
+             此模式的 Try 语义针对业务 ID 更新，而不是针对 Exclusive 获取。
+            
+             如果当前持有 Concurrent，则根据段声明的 IDType 执行原地升级：
+             使用 ContextID 时调用 TryConcurrentToExclusiveWithSwitchContextID(contextID)；
+             使用 EpochID 时调用 TryConcurrentToExclusiveWithRaiseEpochID(epochID)。
+            
+             如果当前已经持有 Exclusive，则尝试应用当前段声明的业务 ID：
+             使用 ContextID 时调用 SwitchContextID(contextID)；
+             使用 EpochID 时调用 RaiseEpochID(epochID)。
+            
+             如果当前没有访问权限，则先尝试应用当前段声明的业务 ID；
+             ID 应用成功后，会等待并获取 Exclusive 权限。
+            
+             只有业务 ID 应用成功，并且最终进入或保持 Exclusive 权限时，当前段才会执行。
+             如果业务 ID 应用失败，当前段不会执行；流水线会释放当前仍持有的权限，
+             并以 None 状态继续后续流水线。
+             </remarks>
+        </member>
+        <member name="T:IntomicLib.ConcurrentExclusiveLockSegment">
+            <summary>
+            Pipeline 中的一个业务段。
+            </summary>
+            <remarks>
+            每个段声明运行该段需要的访问权限，并保存要执行的同步业务代码。
+            </remarks>
+        </member>
+        <member name="T:IntomicLib.ConcurrentExclusiveLockSegment.IDType">
+            <summary>
+            表示 <see cref="F:IntomicLib.ConcurrentExclusiveLockSegment.ContextOrEpochID"/> 的业务 ID 类型。
+            </summary>
+        </member>
+        <member name="F:IntomicLib.ConcurrentExclusiveLockSegment.IDType.ContextID">
+            <summary>
+            使用 ContextID 切换业务上下文。
+            </summary>
+        </member>
+        <member name="F:IntomicLib.ConcurrentExclusiveLockSegment.IDType.EpochID">
+            <summary>
+            使用 EpochID 单调推进业务阶段。
+            </summary>
+        </member>
+        <member name="F:IntomicLib.ConcurrentExclusiveLockSegment.Segment">
+            <summary>
+            当前段要执行的同步业务代码。
+            </summary>
+        </member>
+        <member name="F:IntomicLib.ConcurrentExclusiveLockSegment.ContextOrEpochID">
+            <summary>
+            当前段要应用的业务上下文 ID 或业务阶段 ID。
+            </summary>
+            <remarks>
+            该值只对 <see cref="F:IntomicLib.ConcurrentExclusiveAccessMode.TryApplyIDConvergeExclusive"/> 有意义。
+            当 <see cref="F:IntomicLib.ConcurrentExclusiveLockSegment.IDKind"/> 为 <see cref="F:IntomicLib.ConcurrentExclusiveLockSegment.IDType.ContextID"/> 时表示 ContextID；
+            当 <see cref="F:IntomicLib.ConcurrentExclusiveLockSegment.IDKind"/> 为 <see cref="F:IntomicLib.ConcurrentExclusiveLockSegment.IDType.EpochID"/> 时表示 EpochID。
+            </remarks>
+        </member>
+        <member name="F:IntomicLib.ConcurrentExclusiveLockSegment.IDKind">
+            <summary>
+            表示 <see cref="F:IntomicLib.ConcurrentExclusiveLockSegment.ContextOrEpochID"/> 是 ContextID 还是 EpochID。
+            </summary>
+        </member>
+        <member name="F:IntomicLib.ConcurrentExclusiveLockSegment.Access">
+            <summary>
+            当前段声明的访问权限模式。
+            </summary>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockSegment.None(System.Action)">
+            <summary>
+            创建一个无访问权限的业务段。
+            </summary>
+            <param name="segment">在无锁状态下执行的业务代码。</param>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockSegment.Concurrent(System.Action)">
+            <summary>
+            创建一个获取独立 Concurrent 权限的业务段。
+            </summary>
+            <param name="segment">在成功持有 Concurrent 权限时执行的业务代码。</param>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockSegment.Exclusive(System.Action)">
+            <summary>
+            创建一个获取独立 Exclusive 权限的业务段。
+            </summary>
+            <param name="segment">在成功持有 Exclusive 权限时执行的业务代码。</param>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockSegment.TryConcurrent(System.Action)">
+            <summary>
+            创建一个尝试获取独立 Concurrent 权限的业务段。
+            </summary>
+            <param name="segment">在成功持有 Concurrent 权限时执行的业务代码。</param>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockSegment.TestExclusive(System.Action)">
+            <summary>
+            创建一个仅在 Idle 状态下尝试获取 Exclusive 权限的业务段。
+            </summary>
+            <param name="segment">在成功持有 Exclusive 权限时执行的业务代码。</param>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockSegment.TryExclusive(System.Action)">
+            <summary>
+            创建一个抢占式尝试获取 Exclusive 权限的业务段。
+            </summary>
+            <param name="segment">在成功持有 Exclusive 权限时执行的业务代码。</param>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockSegment.ConvergeConcurrent(System.Action)">
+            <summary>
+            创建一个延续或获取 Concurrent 权限的业务段。
+            </summary>
+            <param name="segment">在成功持有 Concurrent 权限时执行的业务代码。</param>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockSegment.TryApplyIDConvergeExclusive(System.Action,System.Int32,IntomicLib.ConcurrentExclusiveLockSegment.IDType)">
+            <summary>
+            创建一个尝试应用业务 ID，并在成功后收敛到 Exclusive 权限的业务段。
+            </summary>
+            <param name="segment">在成功持有 Exclusive 权限时执行的业务代码。</param>
+            <param name="contextOrEpochID">要切换到的业务上下文 ID，或要推进到的业务阶段 ID。</param>
+            <param name="idType">表示 <paramref name="contextOrEpochID"/> 的具体业务 ID 类型。</param>
+        </member>
+        <member name="T:IntomicLib.ConcurrentExclusiveLockScope">
+             <summary>
+             <see cref="T:IntomicLib.ConcurrentExclusiveLock"/> 的便捷使用封装。
+             </summary>
+             <remarks>
+             在此 scope 的生命周期内，调用者可以按协议在 Concurrent、Exclusive 状态之间切换，
+             包括并发进入、排他进入、原地升级为 Exclusive、从 Exclusive 降级回 Concurrent 等操作。
+             此锁不提供递归式嵌套特权。
+            
+             调用者可以手动释放当前持有的访问权限；如果未手动释放，
+             <see cref="M:IntomicLib.ConcurrentExclusiveLockScope.Dispose"/> 会根据 scope 当前持有的状态自动执行对应释放。
+            
+             Dispose 只会释放当前 Scope 持有的访问权限，不会还原 ContextID 或 EpochID。
+             ContextID / EpochID 表示锁关联的业务状态，应由业务代码自行设置、切换、推进或恢复。
+            
+             此类型用于简化 using 模式下的锁状态管理，减少因异常路径、升级/降级路径或提前返回导致的释放错误。
+             Scope 实例仅供单个调用上下文使用，不支持多线程并发操作，也不应被复制。
+             </remarks>
+        </member>
+        <member name="P:IntomicLib.ConcurrentExclusiveLockScope.ObservedState">
+             <summary>
+             锁当前状态的观察快照。
+             </summary>
+             <remarks>
+             该值仅表示读取瞬间观察到的锁状态，不能作为准确的锁状态判断，仅用于诊断、监控。
+            
+             当抢占式 Exclusive 请求进入竞争窗口后，即使它仍在等待当前 Concurrent 释放，
+             该值也可能观察为 Exclusive。
+             因此，ObservedState 表示当前锁的访问倾向或转换状态，
+             不表示当前已经有线程正在执行 Exclusive 业务代码。
+             </remarks>
+        </member>
+        <member name="P:IntomicLib.ConcurrentExclusiveLockScope.ObservedContention">
+             <summary>
+             获取当前锁竞争压力的观察指标。
+             </summary>
+             <remarks>
+             该值是读取瞬间观察到的竞争压力快照，仅用于诊断、监控或调度参考。
+            
+             因此，纯 Concurrent 场景下该值为 0；
+             一旦存在 Exclusive 压力，则返回当前观察到的 Concurrent + Exclusive 压力规模。
+             </remarks>
+        </member>
+        <member name="P:IntomicLib.ConcurrentExclusiveLockScope.ContextID">
+             <summary>
+             原子获取或设置与当前锁关联的业务上下文 ID。
+             </summary>
+             <remarks>
+             此属性用于记录锁协议之外的附加业务状态，例如由业务层标识当前上下文。
+             从而识别同一上下文并避免重复获取权限。
+            
+             直接设置此属性会无条件覆盖当前 ContextID。
+             如果需要判断是否切换到不同上下文，请使用 <see cref="M:IntomicLib.ConcurrentExclusiveLockScope.SwitchContextID(System.Int32)"/>。
+            
+             值为 0 表示未设置上下文 ID。
+             非零值的含义、分配、校验及清理均由调用方负责。
+             </remarks>
+        </member>
+        <member name="P:IntomicLib.ConcurrentExclusiveLockScope.EpochID">
+             <summary>
+             原子获取或设置与当前锁关联的业务阶段 ID。
+             </summary>
+             <remarks>
+             此属性用于记录锁协议之外的附加业务状态，例如标识排他区域的生命周期阶段、
+             数据版本、处理批次或其他业务阶段。
+            
+             直接设置此属性会无条件覆盖当前 EpochID，
+             不会检查阶段是否向前推进，也不会阻止回退或重置。
+             如果需要保证阶段 ID 只能递增，请使用 <see cref="M:IntomicLib.ConcurrentExclusiveLockScope.RaiseEpochID(System.Int32)"/>。
+            
+             值为 0 表示未设置阶段 ID。
+             非零值的含义、分配、校验及清理均由调用方负责。
+             </remarks>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockScope.SwitchContextID(System.Int32)">
+            <summary>
+            设置新的 ContextID，并返回本次设置是否改变了原值。
+            如果新值与原值相同，则返回 false。
+            </summary>
+            <remarks>
+            此方法只切换业务上下文 ID。
+            </remarks>
+            <param name="newContextID">新的上下文 ID。</param>
+            <returns>如果 ContextID 被设置为不同的新值，则返回 true；如果新值与原值相同，则返回 false。</returns>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockScope.RaiseEpochID(System.Int32)">
+            <summary>
+            尝试将 EpochID 推进到新的阶段，并返回本次推进是否成功。
+            如果新值小于或等于当前值，则返回 false。
+            </summary>
+            <remarks>
+            此方法只推进业务阶段 ID。
+            </remarks>
+            <param name="newEpochID">新的阶段 ID，必须大于当前 EpochID 才能推进成功。</param>
+            <returns>如果 EpochID 成功推进到更大的新值，则返回 true；否则返回 false。</returns>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockScope.#ctor(IntomicLib.ConcurrentExclusiveLock)">
+             <summary>
+             初始化一个绑定到指定 <see cref="T:IntomicLib.ConcurrentExclusiveLock"/> 的使用 scope。
+             </summary>
+             <remarks>
+             构造函数本身不会获得任何 Concurrent 或 Exclusive 访问权限。
+             调用者需要在此 scope 上显式进入 Concurrent、Exclusive、原地升级或原地降级等状态。
+            
+             <see cref="M:IntomicLib.ConcurrentExclusiveLockScope.Dispose"/> 会根据 scope 当前最终持有的状态自动执行对应释放，
+             用于简化 using 范围内的锁状态管理。
+             </remarks>
+             <param name="locker">
+             要由此 scope 管理的 <see cref="T:IntomicLib.ConcurrentExclusiveLock"/> 实例。
+             </param>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockScope.AcquireConcurrent(System.Int32)">
+             <summary>
+             等待获得 Concurrent 访问权限。
+             </summary>
+             <remarks>
+             此方法会在允许进入 Concurrent 状态时返回。
+            
+             获得 Concurrent 后，调用者可以在后续调用 <c>ReleaseConcurrent()</c> 手动释放；
+             如果未手动释放，将由 <see cref="M:IntomicLib.ConcurrentExclusiveLockScope.Dispose"/> 按 scope 当前最终状态释放。
+             如果之后通过其他协议转换了当前持有状态，则应按转换后的状态释放。
+            
+             <paramref name="maxConcurrent"/> 用于限制本次允许进入的最大 Concurrent ID。
+             <paramref name="maxConcurrent"/> 不能小于 1。
+             </remarks>
+             <param name="maxConcurrent">
+             最大允许的 Concurrent ID。
+             有效返回值范围为 [1, maxConcurrent]。
+             </param>
+             <returns>
+             返回本次获得的 Concurrent ID，范围为 [1, maxConcurrent]。
+             </returns>
+             <exception cref="T:System.ArgumentException"></exception>
+             <exception cref="T:IntomicLib.ConcurrentExclusiveLockCapacityExceededException">
+             当运行时同时存在的 Concurrent 数量超过内部限制时抛出。
+             当前实现支持 31-bit 并发计数空间，该限制在实际运行环境中基本不可能触发。
+             </exception>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockScope.TryAcquireConcurrent(System.Int32)">
+             <summary>
+             尝试获得 Concurrent 访问权限。
+             </summary>
+             <remarks>
+             此方法只尝试一次当前是否可以进入 Concurrent 状态，不会等待锁状态变化。
+            
+             返回值不为 0 表示已获得 Concurrent，调用者可以在后续调用 <c>ReleaseConcurrent()</c> 手动释放；
+             如果未手动释放，将由 <see cref="M:IntomicLib.ConcurrentExclusiveLockScope.Dispose"/> 按 scope 当前最终状态释放。
+             如果之后通过其他协议转换了当前持有状态，则应按转换后的状态释放。
+            
+             <paramref name="maxConcurrent"/> 用于限制本次允许进入的最大 Concurrent ID。
+             <paramref name="maxConcurrent"/> 不能小于 1。
+             </remarks>
+             <param name="maxConcurrent">
+             最大允许的 Concurrent ID。
+             有效成功返回值范围为 [1, maxConcurrent]。
+             </param>
+             <returns>
+             返回本次获得的 Concurrent ID，范围为 [1, maxConcurrent]；
+             返回 0 表示未获得 Concurrent。
+             </returns>
+             <exception cref="T:System.ArgumentException"></exception>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockScope.TryAcquireConcurrent(System.Int32,System.Int32)">
+             <summary>
+             在指定时间内尝试获得 Concurrent 访问权限。
+             </summary>
+             <remarks>
+             此方法会在指定超时时间内等待锁进入可获得 Concurrent 的状态。
+            
+             返回值不为 0 表示已获得 Concurrent，调用者可以在后续调用 <c>ReleaseConcurrent()</c> 手动释放；
+             如果未手动释放，将由 <see cref="M:IntomicLib.ConcurrentExclusiveLockScope.Dispose"/> 按 scope 当前最终状态释放。
+             如果之后通过其他协议转换了当前持有状态，则应按转换后的状态释放。
+            
+             <paramref name="millisecondsTimeout"/> 为 0 时只尝试一次，不会等待；小于 0 时表示无限等待。
+            
+             <paramref name="maxConcurrent"/> 用于限制本次允许进入的最大 Concurrent ID。
+             <paramref name="maxConcurrent"/> 不能小于 1。
+             如果 <paramref name="millisecondsTimeout"/> 大于等于 0，则最多等待到超时并返回 0；
+             如果 <paramref name="millisecondsTimeout"/> 小于 0，则会一直等待。
+             </remarks>
+             <param name="millisecondsTimeout">
+             等待获得 Concurrent 的最长毫秒数。
+             0 表示只尝试一次，不等待；小于 0 表示无限等待。
+             </param>
+             <param name="maxConcurrent">
+             最大允许的 Concurrent ID。
+             有效成功返回值范围为 [1, maxConcurrent]。
+             </param>
+             <returns>
+             返回本次获得的 Concurrent ID，范围为 [1, maxConcurrent]；
+             返回 0 表示未在指定时间内获得 Concurrent。
+             </returns>
+             <exception cref="T:System.ArgumentException"></exception>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockScope.ReleaseConcurrent">
+             <summary>
+             释放当前持有的一次 Concurrent 访问权限。
+             </summary>
+             <remarks>
+             此方法必须在当前 scope 已持有 Concurrent 的上下文中调用。
+            
+             调用后，当前 scope 不再持有该次 Concurrent 访问权限，
+             不应继续执行任何依赖该次 Concurrent 权限的业务代码。
+            
+             已手动释放的权限不会再由 <see cref="M:IntomicLib.ConcurrentExclusiveLockScope.Dispose"/> 释放。
+             </remarks>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockScope.AcquireExclusive">
+             <summary>
+             等待获得 Exclusive 访问权限。
+             </summary>
+             <remarks>
+             此方法用于请求抢占式 Exclusive。
+            
+             请求发起后，锁会阻止新的 Concurrent 进入，
+             并等待当前已进入的 Concurrent 释放。
+             当锁进入 Exclusive 状态后，此方法返回。
+            
+             获得 Exclusive 后，调用者可以在后续调用 <c>ReleaseExclusive()</c> 手动释放，
+             或通过 <c>ExclusiveToConcurrent()</c> 降级为 Concurrent 后再按 Concurrent 协议释放；
+             如果未手动释放，将由 <see cref="M:IntomicLib.ConcurrentExclusiveLockScope.Dispose"/> 按 scope 当前最终状态释放。
+             </remarks>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockScope.TryAcquireExclusive(System.Boolean)">
+             <summary>
+             尝试获得 Exclusive 访问权限。
+             </summary>
+             <remarks>
+             当 <paramref name="preemptConcurrent"/> 为 true 时，
+             此方法会以抢占式方式请求 Exclusive。
+             如果当前存在 Concurrent，锁会阻止新的 Concurrent 进入，
+             并参与排他竞争；
+             成功的 Exclusive 请求会等待当前已进入的 Concurrent 释放后获得 Exclusive。
+            
+             当 <paramref name="preemptConcurrent"/> 为 false 时，
+             此方法不会抢占 Concurrent。
+             只要当前存在 Concurrent 或 Exclusive，就会立即返回 false。
+            
+             返回 true 表示已获得 Exclusive，调用者可以在后续调用 <c>ReleaseExclusive()</c> 手动释放，
+             或通过 <c>ExclusiveToConcurrent()</c> 降级为 Concurrent 后再按 Concurrent 协议释放；
+             如果未手动释放，将由 <see cref="M:IntomicLib.ConcurrentExclusiveLockScope.Dispose"/> 按 scope 当前最终状态释放。
+            
+             返回 false 表示未获得 Exclusive，调用者不应执行任何依赖 Exclusive 权限的业务代码。
+             </remarks>
+             <param name="preemptConcurrent">
+             true 表示允许抢占 Concurrent；
+             false 表示不抢占 Concurrent，只有锁处于 Idle 状态时才可能获得 Exclusive。
+             </param>
+             <returns>
+             true 表示已获得 Exclusive；
+             false 表示未获得 Exclusive。
+             </returns>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockScope.TryAcquireExclusive(System.Int32)">
+             <summary>
+             在指定时间内尝试获得 Exclusive 访问权限。
+             </summary>
+             <remarks>
+             此方法会在指定超时时间内尝试获得抢占式 Exclusive。
+            
+             <paramref name="millisecondsTimeout"/> 为 0 时只尝试一次，不会等待；
+             小于 0 时表示无限等待。
+            
+             返回 true 表示已获得 Exclusive，调用者可以在后续调用 <c>ReleaseExclusive()</c> 手动释放，
+             或通过 <c>ExclusiveToConcurrent()</c> 降级为 Concurrent 后再按 Concurrent 协议释放；
+             如果未手动释放，将由 <see cref="M:IntomicLib.ConcurrentExclusiveLockScope.Dispose"/> 按 scope 当前最终状态释放。
+            
+             返回 false 表示未在指定时间内获得 Exclusive，
+             调用者不应执行任何依赖 Exclusive 权限的业务代码。
+             </remarks>
+             <param name="millisecondsTimeout">
+             等待获得 Exclusive 的最长毫秒数。
+             0 表示只尝试一次，不等待；小于 0 表示无限等待。
+             </param>
+             <returns>
+             true 表示已获得 Exclusive；
+             false 表示未在指定时间内获得 Exclusive。
+             </returns>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockScope.ReleaseExclusive">
+             <summary>
+             释放当前持有的 Exclusive 访问权限。
+             </summary>
+             <remarks>
+             此方法必须在当前 scope 已持有 Exclusive 的上下文中调用。
+            
+             调用后，当前 scope 不再持有 Exclusive 访问权限，
+             不应继续执行任何依赖 Exclusive 权限的业务代码。
+            
+             释放完成后，锁会恢复正常竞争状态，
+             等待中的 Concurrent 或 Exclusive 将按照锁的竞争规则继续尝试进入。
+            
+             如果调用者希望在结束 Exclusive 后继续保持 Concurrent 访问权限，
+             应调用 <c>ExclusiveToConcurrent()</c>，
+             而不是调用此方法。
+            
+             已手动释放的权限不会再由 <see cref="M:IntomicLib.ConcurrentExclusiveLockScope.Dispose"/> 释放。
+             </remarks>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockScope.ExclusiveToConcurrent">
+             <summary>
+             将当前持有的 Exclusive 访问权限降级为 Concurrent 访问权限。
+             </summary>
+             <remarks>
+             此方法必须在当前 scope 已持有 Exclusive 的上下文中调用。
+            
+             调用后，当前 scope 不再持有 Exclusive 访问权限，
+             不应继续执行任何依赖 Exclusive 权限的业务代码。
+            
+             当前 scope 会继续持有 Concurrent 访问权限，
+             后续可以调用 <c>ReleaseConcurrent()</c> 手动释放；
+             如果未手动释放，将由 <see cref="M:IntomicLib.ConcurrentExclusiveLockScope.Dispose"/> 按 scope 当前最终状态释放。
+            
+             此方法用于在完成独占修改后，继续保持一个连续的 Concurrent 访问上下文，
+             避免先释放 Exclusive 再重新申请 Concurrent 造成访问窗口。
+             </remarks>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockScope.TryConcurrentToExclusiveWithSwitchContextID(System.Int32)">
+             <summary>
+             在持有 Concurrent 权限的情况下，尝试通过 SwitchContextID 将当前权限升级为 Exclusive。
+             当多个 Concurrent 持有者以相同 newContextID 同时调用时，只有成功切换 ContextID 的持有者能够升级。
+             当调用者使用不同 newContextID 时，多个调用者可能分别成功，但成功后的 Exclusive 执行区仍会被隔离排序。
+             升级成功后，当前 scope 持有 Exclusive 权限；升级失败时，当前 scope 持有的 Concurrent 权限会被自动释放。
+             </summary>
+             <remarks>
+             此方法必须在当前 scope 已持有 Concurrent 权限的上下文中调用。
+            
+             调用后，锁会阻止新的 Concurrent 进入当前转换窗口，
+             成功升级的调用者会按 Exclusive 语义隔离执行。
+             ContextID 的切换是否成功由 <c>SwitchContextID(newContextID)</c> 决定。
+            
+             成功后，调用者可以调用 <c>ReleaseExclusive()</c> 手动释放；
+             如果未手动释放，将由 <see cref="M:IntomicLib.ConcurrentExclusiveLockScope.Dispose"/> 按 scope 当前最终状态释放。
+             失败后，原 Concurrent 权限已经释放，不应再调用 <c>ReleaseConcurrent()</c>。
+             </remarks>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockScope.TryConcurrentToExclusiveWithRaiseEpochID(System.Int32)">
+             <summary>
+             在持有 Concurrent 权限的情况下，尝试通过 RaiseEpochID 将当前权限升级为 Exclusive。
+             仅当 newEpochID 大于当前 EpochID 时，调用者才可能推进阶段并升级成功。
+             当 newEpochID 小于或等于当前 EpochID 时，升级失败，EpochID 保持不变。
+             多个调用者使用递增的不同 newEpochID 时，多个调用者可能分别成功，但成功后的 Exclusive 执行区仍会被隔离排序。
+             升级成功后，当前 scope 持有 Exclusive 权限；升级失败时，当前 scope 持有的 Concurrent 权限会被自动释放。
+             </summary>
+             <remarks>
+             此方法必须在当前 scope 已持有 Concurrent 权限的上下文中调用。
+            
+             此方法适合将 EpochID 用作生命周期、版本号或阶段号的场景。
+             EpochID 只允许向更大的值推进，不允许保持不变或回退。
+             调用后，锁会阻止新的 Concurrent 进入当前转换窗口，
+             成功升级的调用者会按 Exclusive 语义隔离执行。
+            
+             成功后，调用者可以调用 <c>ReleaseExclusive()</c> 手动释放；
+             如果未手动释放，将由 <see cref="M:IntomicLib.ConcurrentExclusiveLockScope.Dispose"/> 按 scope 当前最终状态释放。
+             失败后，原 Concurrent 权限已经释放，不应再调用 <c>ReleaseConcurrent()</c>。
+             </remarks>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockScope.Dispose">
+            <summary>
+            释放此 scope 当前仍持有的访问权限。
+            </summary>
+            <remarks>
+            Dispose 只根据 scope 自身记录的最终持有状态释放 Concurrent 或 Exclusive。
+            已经手动释放的权限不会再次释放。
+            Dispose 不会还原或清理 ContextID / EpochID。
+            </remarks>
+        </member>
+    </members>
+</doc>

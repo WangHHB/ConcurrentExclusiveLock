@@ -1,0 +1,895 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<doc>
+    <assembly>
+        <name>ConcurrentExclusivePack</name>
+    </assembly>
+    <members>
+        <member name="T:IntomicLib.ConcurrentExclusiveLock">
+             <summary>
+             Provides a high-performance, non-recursive synchronization lock based on Concurrent / Exclusive access permissions.
+             </summary>
+             <remarks>This lock represents access permissions rather than read/write intent.
+Concurrent means that the current operation may enter alongside other Concurrent operations;
+Exclusive means that the current operation must enter exclusively and cannot run concurrently with any other operation.
+This lock does not provide recursive nesting privileges.
+
+This lock supports preemptive Exclusive access, in-place upgrade from Concurrent to Exclusive,
+in-place downgrade from Exclusive to Concurrent, and observation snapshots for state and contention.
+
+Ordinary Concurrent acquisition and release primarily use lightweight atomic counting and do not enter the Monitor scheduling queue.
+Ordinary Exclusive acquisition, and conversion from Concurrent to Exclusive through an in-place upgrade,
+use Monitor's mutual exclusion, waiting, signaling, and scheduling mechanisms for exclusive coordination.
+
+This lock does not guarantee strict FIFO ordering and does not promise stronger scheduling fairness than Monitor.
+Actual thread execution order remains affected by operating-system scheduling, CPU topology, cache state, system load,
+and the duration of caller workloads.
+
+This type is intended for synchronous, non-recursive, highly concurrent shared-state scenarios,
+especially server-side systems containing large numbers of fine-grained lock objects.
+
+This type is a value type, and a default-initialized instance is unusable.
+Use <see cref="M:IntomicLib.ConcurrentExclusiveLock.Create"/> to create an instance.</remarks>
+        </member>
+        <member name="F:IntomicLib.ConcurrentExclusiveLock.MaxConcurrent">
+            <summary>
+            The maximum concurrency capacity supported by the lock.
+            </summary>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLock.Create">
+             <summary>Creates a correctly initialized <see cref="T:IntomicLib.ConcurrentExclusiveLock"/> instance.</summary>
+             <remarks><see cref="T:IntomicLib.ConcurrentExclusiveLock"/> is a value type, and a default-initialized instance is unusable.
+Always use this method to create a new instance.
+
+Copying the returned <see cref="T:IntomicLib.ConcurrentExclusiveLock"/> value does not copy the lock state;
+the copied value continues to reference the same internal lock state.</remarks>
+        </member>
+        <member name="P:IntomicLib.ConcurrentExclusiveLock.ObservedState">
+             <summary>
+             An observation snapshot of the lock's current state.
+             </summary>
+             <remarks>
+             This value only represents the lock state observed at the instant of the read. It must not be used as an exact lock-state test and is intended only for diagnostics and monitoring.
+
+After a preemptive Exclusive request enters the contention window, this value may already be observed as Exclusive even while the request is still waiting for current Concurrent holders to release.
+
+Therefore, ObservedState represents the lock's current access tendency or transition state;
+it does not mean that a thread is already executing Exclusive-protected application code.
+             </remarks>
+        </member>
+        <member name="P:IntomicLib.ConcurrentExclusiveLock.ObservedContention">
+             <summary>
+             Gets an observation metric for the lock's current contention pressure.
+             </summary>
+             <remarks>
+             This value is a snapshot of contention pressure observed at the instant of the read and is intended only for diagnostics, monitoring, or scheduling guidance.
+
+It is therefore 0 in a purely Concurrent scenario;
+once Exclusive pressure exists, it reports the currently observed combined Concurrent + Exclusive pressure.
+             </remarks>
+        </member>
+        <member name="P:IntomicLib.ConcurrentExclusiveLock.ContextID">
+             <summary>
+             Atomically gets or sets the business context ID associated with the current lock.
+             </summary>
+             <remarks>This property records additional application state outside the lock protocol, such as the current context identified by the application layer,
+allowing the same context to be recognized and duplicate permission acquisition to be avoided.
+
+Setting this property directly overwrites the current ContextID unconditionally.
+To determine whether the context actually changes, use <see cref="M:IntomicLib.ConcurrentExclusiveLock.SwitchContextID(System.Int32)"/>. 
+
+A value of 0 means that no context ID is set.
+The meaning, allocation, validation, and cleanup of nonzero values are the caller's responsibility.</remarks>
+        </member>
+        <member name="P:IntomicLib.ConcurrentExclusiveLock.EpochID">
+             <summary>
+             Atomically gets or sets the business epoch ID associated with the current lock.
+             </summary>
+             <remarks>This property records additional application state outside the lock protocol, such as the lifecycle phase of an exclusive region,
+a data version, processing batch, or another business epoch.
+
+Setting this property directly overwrites the current EpochID unconditionally.
+It does not check whether the epoch advances and does not prevent rollback or reset.
+To require the epoch ID to increase monotonically, use <see cref="M:IntomicLib.ConcurrentExclusiveLock.RaiseEpochID(System.Int32)"/>. 
+
+A value of 0 means that no epoch ID is set.
+The meaning, allocation, validation, and cleanup of nonzero values are the caller's responsibility.</remarks>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLock.SwitchContextID(System.Int32)">
+            <summary>
+            Sets a new ContextID and returns whether this operation changed the previous value.
+Returns false when the new value equals the previous value.
+            </summary>
+            <remarks>
+            This method only switches the business context ID.
+            </remarks>
+            <param name="newContextID">The new context ID.</param>
+            <returns>true if ContextID was changed to a different value; false if the new value equals the previous value.</returns>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLock.RaiseEpochID(System.Int32)">
+            <summary>
+            Attempts to advance EpochID to a new epoch and returns whether the advancement succeeded.
+Returns false when the new value is less than or equal to the current value.
+            </summary>
+            <remarks>
+            This method only advances the business epoch ID.
+            </remarks>
+            <param name="newEpochID">The new epoch ID. It must be greater than the current EpochID for the advancement to succeed.</param>
+            <returns>true if EpochID was successfully advanced to a greater value; otherwise, false.</returns>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLock.AcquireConcurrent(System.Int32)">
+             <summary>
+             Waits to acquire Concurrent access permission.
+             </summary>
+             <remarks>This method returns when entry in the Concurrent state is permitted.
+
+After acquiring Concurrent permission, the caller may later call <c>ReleaseConcurrent()</c> to release it manually.
+If the held state is subsequently converted through another protocol operation, release it according to the converted state. <paramref name="maxConcurrent"/> limits the maximum Concurrent ID permitted for this acquisition. <paramref name="maxConcurrent"/> must not be less than 1.</remarks>
+             <param name="maxConcurrent">
+             The maximum permitted Concurrent ID.
+A successful return value is in the range [1, maxConcurrent].
+             </param>
+             <returns>
+             The Concurrent ID acquired by this operation, in the range [1, maxConcurrent].
+             </returns>
+             <exception cref="T:System.ArgumentException"/>
+             <exception cref="T:IntomicLib.ConcurrentExclusiveLockCapacityExceededException">
+             Thrown when the number of simultaneously active Concurrent holders exceeds the internal limit.
+The current implementation supports a 31-bit concurrency counter space, so this limit is effectively unreachable in practical environments.
+             </exception>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLock.TryAcquireConcurrent(System.Int32)">
+             <summary>
+             Attempts to acquire Concurrent access permission.
+             </summary>
+             <remarks>This method performs a single immediate attempt to enter the Concurrent state and does not wait for the lock state to change.
+
+A nonzero return value means that Concurrent permission was acquired. The caller may later call <c>ReleaseConcurrent()</c> to release it manually.
+If the held state is subsequently converted through another protocol operation, release it according to the converted state. <paramref name="maxConcurrent"/> limits the maximum Concurrent ID permitted for this acquisition. <paramref name="maxConcurrent"/> must not be less than 1.</remarks>
+             <param name="maxConcurrent">
+             The maximum permitted Concurrent ID.
+A successful return value is in the range [1, maxConcurrent].
+             </param>
+             <returns>
+             The Concurrent ID acquired by this operation, in the range [1, maxConcurrent];
+0 if Concurrent permission was not acquired.
+             </returns>
+             <exception cref="T:System.ArgumentException"/>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLock.TryAcquireConcurrent(System.Int32,System.Int32)">
+             <summary>
+             Attempts to acquire Concurrent access permission within the specified time.
+             </summary>
+             <remarks>This method waits, for up to the specified timeout, for the lock to enter a state in which Concurrent permission can be acquired.
+
+A nonzero return value means that Concurrent permission was acquired. The caller may later call <c>ReleaseConcurrent()</c> to release it manually.
+If the held state is subsequently converted through another protocol operation, release it according to the converted state. When <paramref name="millisecondsTimeout"/> is 0, the method performs a single attempt without waiting; a value less than 0 means an infinite wait. <paramref name="maxConcurrent"/> limits the maximum Concurrent ID permitted for this acquisition. <paramref name="maxConcurrent"/> must not be less than 1.
+When <paramref name="millisecondsTimeout"/> is greater than or equal to 0, the method waits at most until the timeout expires and then returns 0;
+when <paramref name="millisecondsTimeout"/> is less than 0, the method waits indefinitely.</remarks>
+             <param name="millisecondsTimeout">
+             The maximum number of milliseconds to wait for Concurrent permission.
+0 performs a single attempt without waiting; a value less than 0 means an infinite wait.
+             </param>
+             <param name="maxConcurrent">
+             The maximum permitted Concurrent ID.
+A successful return value is in the range [1, maxConcurrent].
+             </param>
+             <returns>
+             The Concurrent ID acquired by this operation, in the range [1, maxConcurrent];
+0 if Concurrent permission was not acquired within the specified time.
+             </returns>
+             <exception cref="T:System.ArgumentException"/>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLock.ReleaseConcurrent">
+             <summary>
+             Releases one currently held Concurrent access permission.
+             </summary>
+             <remarks>
+             This method must be called in a context where the current scope holds Concurrent permission.
+
+After the call, the current scope no longer holds that Concurrent permission
+and must not continue executing application code that depends on it.
+             </remarks>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLock.AcquireExclusive">
+             <summary>
+             Waits to acquire Exclusive access permission.
+             </summary>
+             <remarks>This method requests preemptive Exclusive permission.
+
+Once the request is issued, the lock blocks new Concurrent entries
+and waits for current Concurrent holders to release.
+The method returns after the lock enters the Exclusive state.
+
+After acquiring Exclusive permission, the caller may later call <c>ReleaseExclusive()</c> to release it manually, or call <c>ExclusiveToConcurrent()</c> to downgrade to Concurrent and then release according to the Concurrent protocol.</remarks>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLock.TryAcquireExclusive(System.Boolean)">
+             <summary>
+             Attempts to acquire Exclusive access permission.
+             </summary>
+             <remarks>When <paramref name="preemptConcurrent"/> is true, this method requests Exclusive permission preemptively.
+If Concurrent holders currently exist, the lock blocks new Concurrent entries
+and participates in exclusive contention;
+a successful Exclusive request waits for current Concurrent holders to release before acquiring Exclusive permission.
+
+When <paramref name="preemptConcurrent"/> is false, this method does not preempt Concurrent holders.
+It returns false immediately whenever Concurrent or Exclusive permission is currently held.
+
+A return value of true means that Exclusive permission was acquired. The caller may later call <c>ReleaseExclusive()</c> to release it manually, or call <c>ExclusiveToConcurrent()</c> to downgrade to Concurrent and then release according to the Concurrent protocol.
+
+A return value of false means that Exclusive permission was not acquired, and the caller must not execute application code that depends on Exclusive permission.</remarks>
+             <param name="preemptConcurrent">
+             true to allow preemption of Concurrent holders;
+false to avoid preemption, in which case Exclusive permission can be acquired only when the lock is Idle.
+             </param>
+             <returns>
+             true if Exclusive permission was acquired;
+otherwise, false.
+             </returns>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLock.TryAcquireExclusive(System.Int32)">
+             <summary>
+             Attempts to acquire Exclusive access permission within the specified time.
+             </summary>
+             <remarks>This method attempts to acquire preemptive Exclusive permission within the specified timeout. When <paramref name="millisecondsTimeout"/> is 0, the method performs a single attempt without waiting;
+a value less than 0 means an infinite wait.
+
+A return value of true means that Exclusive permission was acquired. The caller may later call <c>ReleaseExclusive()</c> to release it manually, or call <c>ExclusiveToConcurrent()</c> to downgrade to Concurrent and then release according to the Concurrent protocol.
+
+A return value of false means that Exclusive permission was not acquired within the specified time,
+and the caller must not execute application code that depends on Exclusive permission.</remarks>
+             <param name="millisecondsTimeout">
+             The maximum number of milliseconds to wait for Exclusive permission.
+0 performs a single attempt without waiting; a value less than 0 means an infinite wait.
+             </param>
+             <returns>
+             true if Exclusive permission was acquired;
+false if it was not acquired within the specified time.
+             </returns>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLock.ReleaseExclusive">
+             <summary>
+             Releases the currently held Exclusive access permission.
+             </summary>
+             <remarks>This method must be called in a context where the current scope holds Exclusive permission.
+
+After the call, the current scope no longer holds Exclusive permission
+and must not continue executing application code that depends on it.
+
+After release completes, the lock returns to normal contention,
+and waiting Concurrent or Exclusive requests continue attempting to enter according to the lock's contention rules.
+
+To retain Concurrent permission after finishing the Exclusive region, call <c>ExclusiveToConcurrent()</c> instead of this method.</remarks>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLock.ExclusiveToConcurrent">
+             <summary>
+             Downgrades the currently held Exclusive access permission to Concurrent access permission.
+             </summary>
+             <remarks>This method must be called in a context where the current scope holds Exclusive permission.
+
+After the call, the current scope no longer holds Exclusive permission
+and must not continue executing application code that depends on it.
+
+The current scope continues to hold Concurrent permission
+and may later call <c>ReleaseConcurrent()</c> to release it manually.
+
+This method preserves a continuous Concurrent access context after exclusive modification,
+avoiding the access window created by releasing Exclusive and then reacquiring Concurrent.</remarks>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLock.TryConcurrentToExclusiveWithSwitchContextID(System.Int32)">
+             <summary>
+             While holding Concurrent permission, attempts to upgrade the current permission to Exclusive through SwitchContextID.
+When multiple Concurrent holders call this method simultaneously with the same newContextID, only the holder that successfully switches ContextID can upgrade.
+When callers use different newContextID values, multiple callers may each succeed, but their successful Exclusive regions are still isolated and ordered.
+After a successful upgrade, the current scope holds Exclusive permission; after a failed upgrade, the current scope's Concurrent permission is released automatically.
+             </summary>
+             <remarks>This method must be called in a context where the current scope holds Concurrent permission.
+
+After the call, the lock blocks new Concurrent entries into the current conversion window,
+and a caller that successfully upgrades executes in isolation under Exclusive semantics.
+Whether ContextID is switched successfully is determined by <c>SwitchContextID(newContextID)</c>.
+
+After success, the caller may call <c>ReleaseExclusive()</c> to release it manually.
+After failure, the original Concurrent permission has already been released and the caller must not call <c>ReleaseConcurrent()</c>.</remarks>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLock.TryConcurrentToExclusiveWithRaiseEpochID(System.Int32)">
+             <summary>
+             While holding Concurrent permission, attempts to upgrade the current permission to Exclusive through RaiseEpochID.
+The caller can advance the epoch and upgrade successfully only when newEpochID is greater than the current EpochID.
+When newEpochID is less than or equal to the current EpochID, the upgrade fails and EpochID remains unchanged.
+When multiple callers use different, increasing newEpochID values, multiple callers may each succeed, but their successful Exclusive regions are still isolated and ordered.
+After a successful upgrade, the current scope holds Exclusive permission; after a failed upgrade, the current scope's Concurrent permission is released automatically.
+             </summary>
+             <remarks>This method must be called in a context where the current scope holds Concurrent permission.
+
+This method is suitable when EpochID represents a lifecycle, version number, or phase number.
+EpochID may only advance to a greater value; it cannot remain unchanged or move backward.
+After the call, the lock blocks new Concurrent entries into the current conversion window,
+and a caller that successfully upgrades executes in isolation under Exclusive semantics.
+
+After success, the caller may call <c>ReleaseExclusive()</c> to release it manually.
+After failure, the original Concurrent permission has already been released and the caller must not call <c>ReleaseConcurrent()</c>.</remarks>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLock._FreeRelease(System.Int64)">
+            <summary>
+            Helper method.
+            </summary>
+            <param name="counter"/>
+        </member>
+        <member name="T:IntomicLib.ConcurrentExclusiveLockState">
+            <summary>
+            The state of a ConcurrentExclusiveLock.
+            </summary>
+        </member>
+        <member name="F:IntomicLib.ConcurrentExclusiveLockState.Idle">
+            <summary>
+            Idle.
+            </summary>
+        </member>
+        <member name="F:IntomicLib.ConcurrentExclusiveLockState.Concurrent">
+            <summary>
+            Concurrent.
+            </summary>
+        </member>
+        <member name="F:IntomicLib.ConcurrentExclusiveLockState.Exclusive">
+            <summary>
+            Exclusive.
+            </summary>
+        </member>
+        <member name="T:IntomicLib.ConcurrentExclusiveLockCapacityExceededException">
+            <summary>
+            Thrown when ConcurrentExclusiveLock exceeds its maximum runtime concurrency capacity.
+This condition is generally impossible in practice.
+            </summary>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockCapacityExceededException.#ctor">
+            <summary>
+            
+            </summary>
+        </member>
+        <member name="T:IntomicLib.ConcurrentExclusiveLockPipeline">
+             <summary>An access-permission Pipeline for <see cref="T:IntomicLib.ConcurrentExclusiveLock"/>.</summary>
+             <remarks>
+             A Pipeline describes an application workflow as a sequence of segments, each declaring the access permission it requires.
+During execution, the Pipeline automatically releases, reacquires, or converts permissions in place according to the permission successfully held by the previous segment.
+
+Concurrent represents an independent ordinary Concurrent permission segment; consecutive ordinary Concurrent segments are separated and reacquired.
+ConvergeConcurrent preserves or establishes a Concurrent context; if the previous segment held Exclusive permission, it is downgraded to Concurrent in place.
+
+TryApplyIDConvergeExclusive first attempts to apply a business ID and, on success, converges to Exclusive:
+if the previous segment held Concurrent permission, the corresponding in-place upgrade method is called according to the ID type;
+if the previous segment held Exclusive permission, the business ID is applied within the current Exclusive context;
+if no permission is currently held, the business ID is applied first and Exclusive permission is acquired after success.
+
+An Exclusive segment reacquires an independent Exclusive permission;
+even when the previous segment already held Exclusive permission, it is released and reacquired so that other contenders have an opportunity to enter.
+To continue execution within an existing Exclusive context under business-ID control, use TryApplyIDConvergeExclusive.
+
+When TryConcurrent, TestExclusive, TryExclusive, or TryApplyIDConvergeExclusive does not satisfy its target execution condition,
+the current segment is skipped; the Pipeline neither throws nor terminates,
+and instead continues interpreting subsequent segments from the None state.
+             </remarks>
+        </member>
+        <member name="F:IntomicLib.ConcurrentExclusiveLockPipeline.Locker">
+            <summary>
+            The lock instance bound to the current Pipeline.
+            </summary>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockPipeline.#ctor(IntomicLib.ConcurrentExclusiveLock)">
+            <summary>
+            Creates an access-permission Pipeline bound to the specified lock instance.
+            </summary>
+            <param name="locker">The lock instance used by the Pipeline.</param>
+            <remarks>
+            A Pipeline reuses the same lock instance for its entire lifetime; multiple Pipeline instances may also bind to the same lock instance.
+            </remarks>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockPipeline.DoPipelineAsync(IntomicLib.ConcurrentExclusiveLockSegment[])">
+            <summary>
+            Executes one synchronous Pipeline operation on the thread pool.
+            </summary>
+            <remarks>This method does not turn <see cref="T:IntomicLib.ConcurrentExclusiveLockSegment"/> into an asynchronous segment and does not perform asynchronous waits inside a segment. It only uses <see cref="M:System.Threading.Tasks.Task.Run(System.Action)"/> to schedule the synchronous <see cref="M:IntomicLib.ConcurrentExclusiveLockPipeline.DoPipeline(IntomicLib.ConcurrentExclusiveLockSegment[])"/> for execution on the thread pool. When the caller is already running on a worker thread, thread-pool thread, or server request thread, it should usually call <see cref="M:IntomicLib.ConcurrentExclusiveLockPipeline.DoPipeline(IntomicLib.ConcurrentExclusiveLockSegment[])"/>.</remarks>
+            <param name="segments">The Pipeline segments to execute in order.</param>
+            <returns>A task representing this Pipeline execution.</returns>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockPipeline.DoPipeline(IntomicLib.ConcurrentExclusiveLockSegment[])">
+             <summary>
+             Executes a sequence of Pipeline segments in order.
+             </summary>
+             <remarks>Each segment declares the access permission it requires, and the Pipeline automatically selects the appropriate operation according to the permission successfully held by the previous segment. Ordinary <see cref="F:IntomicLib.ConcurrentExclusiveAccessMode.Concurrent"/> and <see cref="F:IntomicLib.ConcurrentExclusiveAccessMode.Exclusive"/> represent independent permission segments; even when the previous segment holds the same kind of permission, it is released and reacquired. <see cref="F:IntomicLib.ConcurrentExclusiveAccessMode.ConvergeConcurrent"/> preserves or establishes a Concurrent context; if the previous segment holds Exclusive permission, it is downgraded to Concurrent in place. <see cref="F:IntomicLib.ConcurrentExclusiveAccessMode.TryApplyIDConvergeExclusive"/> has Try semantics for updating the business ID. The current segment executes only when the business ID is applied successfully and the Pipeline ultimately enters or retains Exclusive permission. When a Try segment does not satisfy its target execution condition, the current segment is skipped and subsequent segments continue; the Pipeline then treats itself as holding no access permission, and subsequent segments are interpreted from the None state.</remarks>
+             <param name="segments">The Pipeline segments to execute in order.</param>
+        </member>
+        <member name="T:IntomicLib.ConcurrentExclusiveAccessMode">
+            <summary>
+            The access-permission mode declared by a Pipeline segment.
+            </summary>
+            <remarks>
+            This enumeration only describes the access permission under which the current segment requests to execute.
+            </remarks>
+        </member>
+        <member name="F:IntomicLib.ConcurrentExclusiveAccessMode.None">
+            <summary>
+            No access permission.
+            </summary>
+            <remarks>
+            Before the current segment executes, any permission still held from the previous segment is released, and the current segment runs without lock permission.
+            </remarks>
+        </member>
+        <member name="F:IntomicLib.ConcurrentExclusiveAccessMode.Concurrent">
+            <summary>
+            Acquires an independent Concurrent permission segment.
+            </summary>
+            <remarks>If the previous segment already holds Concurrent permission, that permission is released and reacquired.
+To preserve the current Concurrent context, use <see cref="F:IntomicLib.ConcurrentExclusiveAccessMode.ConvergeConcurrent"/>.</remarks>
+        </member>
+        <member name="F:IntomicLib.ConcurrentExclusiveAccessMode.TryConcurrent">
+            <summary>
+            Attempts to acquire an independent Concurrent permission segment.
+            </summary>
+            <remarks>
+            If Concurrent permission is not acquired, the current segment is skipped and the Pipeline continues from the None state.
+If the previous segment still holds permission, that permission is released before the acquisition attempt.
+            </remarks>
+        </member>
+        <member name="F:IntomicLib.ConcurrentExclusiveAccessMode.Exclusive">
+            <summary>
+            Acquires an independent Exclusive permission segment.
+            </summary>
+            <remarks>Exclusive represents an independent exclusive-permission segment.
+If the previous segment already holds Exclusive permission, that permission is still released and reacquired.
+To continue execution within an existing Exclusive context under business-ID control, use <see cref="F:IntomicLib.ConcurrentExclusiveAccessMode.TryApplyIDConvergeExclusive"/>.</remarks>
+        </member>
+        <member name="F:IntomicLib.ConcurrentExclusiveAccessMode.TestExclusive">
+            <summary>
+            Attempts to acquire Exclusive permission only when the lock is Idle.
+            </summary>
+            <remarks>
+            This mode does not preempt existing Concurrent holders.
+If Concurrent or Exclusive permission currently exists, the current segment is skipped and the Pipeline continues from the None state.
+If the previous segment still holds permission, that permission is released before the acquisition attempt.
+            </remarks>
+        </member>
+        <member name="F:IntomicLib.ConcurrentExclusiveAccessMode.TryExclusive">
+            <summary>
+            Preemptively attempts to acquire Exclusive permission.
+            </summary>
+            <remarks>
+            This mode may block new Concurrent entries while attempting to acquire Exclusive permission.
+If Exclusive permission is not acquired, the current segment is skipped and the Pipeline continues from the None state.
+If the previous segment still holds permission, that permission is released before the acquisition attempt.
+            </remarks>
+        </member>
+        <member name="F:IntomicLib.ConcurrentExclusiveAccessMode.ConvergeConcurrent">
+            <summary>
+            Preserves or acquires Concurrent permission.
+            </summary>
+            <remarks>
+            If the previous segment already holds Concurrent permission, the current Concurrent context is preserved and the segment executes directly.
+If the previous segment holds Exclusive permission, ExclusiveToConcurrent() is called to downgrade it in place before the segment executes.
+If no permission is currently held, ordinary Concurrent permission is acquired.
+            </remarks>
+        </member>
+        <member name="F:IntomicLib.ConcurrentExclusiveAccessMode.TryApplyIDConvergeExclusive">
+             <summary>
+             Attempts to apply a business ID and, on success, converge to Exclusive permission.
+             </summary>
+             <remarks>
+             The Try semantics of this mode apply to updating the business ID, not to acquiring Exclusive permission.
+
+If Concurrent permission is currently held, an in-place upgrade is performed according to the segment's IDType:
+with ContextID, TryConcurrentToExclusiveWithSwitchContextID(contextID) is called;
+with EpochID, TryConcurrentToExclusiveWithRaiseEpochID(epochID) is called.
+
+If Exclusive permission is already held, the business ID declared by the current segment is applied:
+with ContextID, SwitchContextID(contextID) is called;
+with EpochID, RaiseEpochID(epochID) is called.
+
+If no access permission is currently held, the declared business ID is applied first;
+after the ID is applied successfully, the Pipeline waits for and acquires Exclusive permission.
+
+The current segment executes only when the business ID is applied successfully and the Pipeline ultimately enters or retains Exclusive permission.
+If applying the business ID fails, the current segment is skipped; the Pipeline releases any permission it still holds
+and continues interpreting subsequent segments from the None state.
+             </remarks>
+        </member>
+        <member name="T:IntomicLib.ConcurrentExclusiveLockSegment">
+            <summary>
+            An application segment in a Pipeline.
+            </summary>
+            <remarks>
+            Each segment declares the access permission required to run it and stores the synchronous application code to execute.
+            </remarks>
+        </member>
+        <member name="T:IntomicLib.ConcurrentExclusiveLockSegment.IDType">
+            <summary>Specifies the business ID type represented by <see cref="F:IntomicLib.ConcurrentExclusiveLockSegment.ContextOrEpochID"/>.</summary>
+        </member>
+        <member name="F:IntomicLib.ConcurrentExclusiveLockSegment.IDType.ContextID">
+            <summary>
+            Uses ContextID to switch the business context.
+            </summary>
+        </member>
+        <member name="F:IntomicLib.ConcurrentExclusiveLockSegment.IDType.EpochID">
+            <summary>
+            Uses EpochID to advance the business epoch monotonically.
+            </summary>
+        </member>
+        <member name="F:IntomicLib.ConcurrentExclusiveLockSegment.Segment">
+            <summary>
+            The synchronous application code executed by the current segment.
+            </summary>
+        </member>
+        <member name="F:IntomicLib.ConcurrentExclusiveLockSegment.ContextOrEpochID">
+            <summary>
+            The business context ID or business epoch ID applied by the current segment.
+            </summary>
+            <remarks>This value is meaningful only for <see cref="F:IntomicLib.ConcurrentExclusiveAccessMode.TryApplyIDConvergeExclusive"/>. When <see cref="F:IntomicLib.ConcurrentExclusiveLockSegment.IDKind"/> is <see cref="F:IntomicLib.ConcurrentExclusiveLockSegment.IDType.ContextID"/>, the value represents ContextID; when <see cref="F:IntomicLib.ConcurrentExclusiveLockSegment.IDKind"/> is <see cref="F:IntomicLib.ConcurrentExclusiveLockSegment.IDType.EpochID"/>, the value represents EpochID.</remarks>
+        </member>
+        <member name="F:IntomicLib.ConcurrentExclusiveLockSegment.IDKind">
+            <summary>Indicates whether <see cref="F:IntomicLib.ConcurrentExclusiveLockSegment.ContextOrEpochID"/> represents ContextID or EpochID.</summary>
+        </member>
+        <member name="F:IntomicLib.ConcurrentExclusiveLockSegment.Access">
+            <summary>
+            The access-permission mode declared by the current segment.
+            </summary>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockSegment.None(System.Action)">
+            <summary>
+            Creates an application segment that runs without access permission.
+            </summary>
+            <param name="segment">The application code to execute without lock permission.</param>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockSegment.Concurrent(System.Action)">
+            <summary>
+            Creates an application segment that acquires independent Concurrent permission.
+            </summary>
+            <param name="segment">The application code to execute while Concurrent permission is successfully held.</param>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockSegment.Exclusive(System.Action)">
+            <summary>
+            Creates an application segment that acquires independent Exclusive permission.
+            </summary>
+            <param name="segment">The application code to execute while Exclusive permission is successfully held.</param>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockSegment.TryConcurrent(System.Action)">
+            <summary>
+            Creates an application segment that attempts to acquire independent Concurrent permission.
+            </summary>
+            <param name="segment">The application code to execute while Concurrent permission is successfully held.</param>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockSegment.TestExclusive(System.Action)">
+            <summary>
+            Creates an application segment that attempts to acquire Exclusive permission only when the lock is Idle.
+            </summary>
+            <param name="segment">The application code to execute while Exclusive permission is successfully held.</param>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockSegment.TryExclusive(System.Action)">
+            <summary>
+            Creates an application segment that preemptively attempts to acquire Exclusive permission.
+            </summary>
+            <param name="segment">The application code to execute while Exclusive permission is successfully held.</param>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockSegment.ConvergeConcurrent(System.Action)">
+            <summary>
+            Creates an application segment that preserves or acquires Concurrent permission.
+            </summary>
+            <param name="segment">The application code to execute while Concurrent permission is successfully held.</param>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockSegment.TryApplyIDConvergeExclusive(System.Action,System.Int32,IntomicLib.ConcurrentExclusiveLockSegment.IDType)">
+            <summary>
+            Creates an application segment that attempts to apply a business ID and, on success, converge to Exclusive permission.
+            </summary>
+            <param name="segment">The application code to execute while Exclusive permission is successfully held.</param>
+            <param name="contextOrEpochID">The business context ID to switch to, or the business epoch ID to advance to.</param>
+            <param name="idType">The specific business ID type represented by <paramref name="contextOrEpochID"/>.</param>
+        </member>
+        <member name="T:IntomicLib.ConcurrentExclusiveLockScope">
+             <summary>A convenience wrapper for <see cref="T:IntomicLib.ConcurrentExclusiveLock"/>.</summary>
+             <remarks>During the lifetime of this scope, the caller may move between Concurrent and Exclusive states according to the protocol,
+including Concurrent entry, Exclusive entry, in-place upgrade to Exclusive, and in-place downgrade from Exclusive to Concurrent.
+This lock does not provide recursive nesting privileges.
+
+The caller may manually release the currently held access permission. If it is not released manually, <see cref="M:IntomicLib.ConcurrentExclusiveLockScope.Dispose"/> automatically releases the permission corresponding to the state currently held by the scope.
+
+Dispose releases only the access permission held by the current Scope and does not restore ContextID or EpochID.
+ContextID / EpochID represent application state associated with the lock and must be set, switched, advanced, or restored by application code.
+
+This type simplifies lock-state management in a using pattern and reduces release errors caused by exception paths, upgrade/downgrade paths, or early returns.
+A Scope instance is intended for a single execution context, does not support concurrent operations from multiple threads, and must not be copied.</remarks>
+        </member>
+        <member name="P:IntomicLib.ConcurrentExclusiveLockScope.ObservedState">
+             <summary>
+             An observation snapshot of the lock's current state.
+             </summary>
+             <remarks>
+             This value only represents the lock state observed at the instant of the read. It must not be used as an exact lock-state test and is intended only for diagnostics and monitoring.
+
+After a preemptive Exclusive request enters the contention window, this value may already be observed as Exclusive even while the request is still waiting for current Concurrent holders to release.
+
+Therefore, ObservedState represents the lock's current access tendency or transition state;
+it does not mean that a thread is already executing Exclusive-protected application code.
+             </remarks>
+        </member>
+        <member name="P:IntomicLib.ConcurrentExclusiveLockScope.ObservedContention">
+             <summary>
+             Gets an observation metric for the lock's current contention pressure.
+             </summary>
+             <remarks>
+             This value is a snapshot of contention pressure observed at the instant of the read and is intended only for diagnostics, monitoring, or scheduling guidance.
+
+It is therefore 0 in a purely Concurrent scenario;
+once Exclusive pressure exists, it reports the currently observed combined Concurrent + Exclusive pressure.
+             </remarks>
+        </member>
+        <member name="P:IntomicLib.ConcurrentExclusiveLockScope.ContextID">
+             <summary>
+             Atomically gets or sets the business context ID associated with the current lock.
+             </summary>
+             <remarks>This property records additional application state outside the lock protocol, such as the current context identified by the application layer,
+allowing the same context to be recognized and duplicate permission acquisition to be avoided.
+
+Setting this property directly overwrites the current ContextID unconditionally.
+To determine whether the context actually changes, use <see cref="M:IntomicLib.ConcurrentExclusiveLockScope.SwitchContextID(System.Int32)"/>. 
+
+A value of 0 means that no context ID is set.
+The meaning, allocation, validation, and cleanup of nonzero values are the caller's responsibility.</remarks>
+        </member>
+        <member name="P:IntomicLib.ConcurrentExclusiveLockScope.EpochID">
+             <summary>
+             Atomically gets or sets the business epoch ID associated with the current lock.
+             </summary>
+             <remarks>This property records additional application state outside the lock protocol, such as the lifecycle phase of an exclusive region,
+a data version, processing batch, or another business epoch.
+
+Setting this property directly overwrites the current EpochID unconditionally.
+It does not check whether the epoch advances and does not prevent rollback or reset.
+To require the epoch ID to increase monotonically, use <see cref="M:IntomicLib.ConcurrentExclusiveLockScope.RaiseEpochID(System.Int32)"/>. 
+
+A value of 0 means that no epoch ID is set.
+The meaning, allocation, validation, and cleanup of nonzero values are the caller's responsibility.</remarks>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockScope.SwitchContextID(System.Int32)">
+            <summary>
+            Sets a new ContextID and returns whether this operation changed the previous value.
+Returns false when the new value equals the previous value.
+            </summary>
+            <remarks>
+            This method only switches the business context ID.
+            </remarks>
+            <param name="newContextID">The new context ID.</param>
+            <returns>true if ContextID was changed to a different value; false if the new value equals the previous value.</returns>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockScope.RaiseEpochID(System.Int32)">
+            <summary>
+            Attempts to advance EpochID to a new epoch and returns whether the advancement succeeded.
+Returns false when the new value is less than or equal to the current value.
+            </summary>
+            <remarks>
+            This method only advances the business epoch ID.
+            </remarks>
+            <param name="newEpochID">The new epoch ID. It must be greater than the current EpochID for the advancement to succeed.</param>
+            <returns>true if EpochID was successfully advanced to a greater value; otherwise, false.</returns>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockScope.#ctor(IntomicLib.ConcurrentExclusiveLock)">
+             <summary>Initializes a usage scope bound to the specified <see cref="T:IntomicLib.ConcurrentExclusiveLock"/>.</summary>
+             <remarks>The constructor itself does not acquire Concurrent or Exclusive access permission.
+The caller must explicitly enter Concurrent, Exclusive, in-place upgrade, or in-place downgrade states through this scope. <see cref="M:IntomicLib.ConcurrentExclusiveLockScope.Dispose"/> automatically releases the permission corresponding to the final state held by the scope,
+simplifying lock-state management within a using statement.</remarks>
+             <param name="locker">The <see cref="T:IntomicLib.ConcurrentExclusiveLock"/> instance managed by this scope.</param>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockScope.AcquireConcurrent(System.Int32)">
+             <summary>
+             Waits to acquire Concurrent access permission.
+             </summary>
+             <remarks>This method returns when entry in the Concurrent state is permitted.
+
+After acquiring Concurrent permission, the caller may later call <c>ReleaseConcurrent()</c> to release it manually.
+If it is not released manually, <see cref="M:IntomicLib.ConcurrentExclusiveLockScope.Dispose"/> releases it according to the final state held by the scope.
+If the held state is subsequently converted through another protocol operation, release it according to the converted state. <paramref name="maxConcurrent"/> limits the maximum Concurrent ID permitted for this acquisition. <paramref name="maxConcurrent"/> must not be less than 1.</remarks>
+             <param name="maxConcurrent">
+             The maximum permitted Concurrent ID.
+A successful return value is in the range [1, maxConcurrent].
+             </param>
+             <returns>
+             The Concurrent ID acquired by this operation, in the range [1, maxConcurrent].
+             </returns>
+             <exception cref="T:System.ArgumentException"/>
+             <exception cref="T:IntomicLib.ConcurrentExclusiveLockCapacityExceededException">
+             Thrown when the number of simultaneously active Concurrent holders exceeds the internal limit.
+The current implementation supports a 31-bit concurrency counter space, so this limit is effectively unreachable in practical environments.
+             </exception>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockScope.TryAcquireConcurrent(System.Int32)">
+             <summary>
+             Attempts to acquire Concurrent access permission.
+             </summary>
+             <remarks>This method performs a single immediate attempt to enter the Concurrent state and does not wait for the lock state to change.
+
+A nonzero return value means that Concurrent permission was acquired. The caller may later call <c>ReleaseConcurrent()</c> to release it manually.
+If it is not released manually, <see cref="M:IntomicLib.ConcurrentExclusiveLockScope.Dispose"/> releases it according to the final state held by the scope.
+If the held state is subsequently converted through another protocol operation, release it according to the converted state. <paramref name="maxConcurrent"/> limits the maximum Concurrent ID permitted for this acquisition. <paramref name="maxConcurrent"/> must not be less than 1.</remarks>
+             <param name="maxConcurrent">
+             The maximum permitted Concurrent ID.
+A successful return value is in the range [1, maxConcurrent].
+             </param>
+             <returns>
+             The Concurrent ID acquired by this operation, in the range [1, maxConcurrent];
+0 if Concurrent permission was not acquired.
+             </returns>
+             <exception cref="T:System.ArgumentException"/>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockScope.TryAcquireConcurrent(System.Int32,System.Int32)">
+             <summary>
+             Attempts to acquire Concurrent access permission within the specified time.
+             </summary>
+             <remarks>This method waits, for up to the specified timeout, for the lock to enter a state in which Concurrent permission can be acquired.
+
+A nonzero return value means that Concurrent permission was acquired. The caller may later call <c>ReleaseConcurrent()</c> to release it manually.
+If it is not released manually, <see cref="M:IntomicLib.ConcurrentExclusiveLockScope.Dispose"/> releases it according to the final state held by the scope.
+If the held state is subsequently converted through another protocol operation, release it according to the converted state. When <paramref name="millisecondsTimeout"/> is 0, the method performs a single attempt without waiting; a value less than 0 means an infinite wait. <paramref name="maxConcurrent"/> limits the maximum Concurrent ID permitted for this acquisition. <paramref name="maxConcurrent"/> must not be less than 1.
+When <paramref name="millisecondsTimeout"/> is greater than or equal to 0, the method waits at most until the timeout expires and then returns 0;
+when <paramref name="millisecondsTimeout"/> is less than 0, the method waits indefinitely.</remarks>
+             <param name="millisecondsTimeout">
+             The maximum number of milliseconds to wait for Concurrent permission.
+0 performs a single attempt without waiting; a value less than 0 means an infinite wait.
+             </param>
+             <param name="maxConcurrent">
+             The maximum permitted Concurrent ID.
+A successful return value is in the range [1, maxConcurrent].
+             </param>
+             <returns>
+             The Concurrent ID acquired by this operation, in the range [1, maxConcurrent];
+0 if Concurrent permission was not acquired within the specified time.
+             </returns>
+             <exception cref="T:System.ArgumentException"/>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockScope.ReleaseConcurrent">
+             <summary>
+             Releases one currently held Concurrent access permission.
+             </summary>
+             <remarks>This method must be called in a context where the current scope holds Concurrent permission.
+
+After the call, the current scope no longer holds that Concurrent permission
+and must not continue executing application code that depends on it.
+
+A permission released manually is not released again by <see cref="M:IntomicLib.ConcurrentExclusiveLockScope.Dispose"/>.</remarks>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockScope.AcquireExclusive">
+             <summary>
+             Waits to acquire Exclusive access permission.
+             </summary>
+             <remarks>This method requests preemptive Exclusive permission.
+
+Once the request is issued, the lock blocks new Concurrent entries
+and waits for current Concurrent holders to release.
+The method returns after the lock enters the Exclusive state.
+
+After acquiring Exclusive permission, the caller may later call <c>ReleaseExclusive()</c> to release it manually, or call <c>ExclusiveToConcurrent()</c> to downgrade to Concurrent and then release according to the Concurrent protocol.
+If it is not released manually, <see cref="M:IntomicLib.ConcurrentExclusiveLockScope.Dispose"/> releases it according to the final state held by the scope.</remarks>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockScope.TryAcquireExclusive(System.Boolean)">
+             <summary>
+             Attempts to acquire Exclusive access permission.
+             </summary>
+             <remarks>When <paramref name="preemptConcurrent"/> is true, this method requests Exclusive permission preemptively.
+If Concurrent holders currently exist, the lock blocks new Concurrent entries
+and participates in exclusive contention;
+a successful Exclusive request waits for current Concurrent holders to release before acquiring Exclusive permission.
+
+When <paramref name="preemptConcurrent"/> is false, this method does not preempt Concurrent holders.
+It returns false immediately whenever Concurrent or Exclusive permission is currently held.
+
+A return value of true means that Exclusive permission was acquired. The caller may later call <c>ReleaseExclusive()</c> to release it manually, or call <c>ExclusiveToConcurrent()</c> to downgrade to Concurrent and then release according to the Concurrent protocol.
+If it is not released manually, <see cref="M:IntomicLib.ConcurrentExclusiveLockScope.Dispose"/> releases it according to the final state held by the scope.
+
+A return value of false means that Exclusive permission was not acquired, and the caller must not execute application code that depends on Exclusive permission.</remarks>
+             <param name="preemptConcurrent">
+             true to allow preemption of Concurrent holders;
+false to avoid preemption, in which case Exclusive permission can be acquired only when the lock is Idle.
+             </param>
+             <returns>
+             true if Exclusive permission was acquired;
+otherwise, false.
+             </returns>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockScope.TryAcquireExclusive(System.Int32)">
+             <summary>
+             Attempts to acquire Exclusive access permission within the specified time.
+             </summary>
+             <remarks>This method attempts to acquire preemptive Exclusive permission within the specified timeout. When <paramref name="millisecondsTimeout"/> is 0, the method performs a single attempt without waiting;
+a value less than 0 means an infinite wait.
+
+A return value of true means that Exclusive permission was acquired. The caller may later call <c>ReleaseExclusive()</c> to release it manually, or call <c>ExclusiveToConcurrent()</c> to downgrade to Concurrent and then release according to the Concurrent protocol.
+If it is not released manually, <see cref="M:IntomicLib.ConcurrentExclusiveLockScope.Dispose"/> releases it according to the final state held by the scope.
+
+A return value of false means that Exclusive permission was not acquired within the specified time,
+and the caller must not execute application code that depends on Exclusive permission.</remarks>
+             <param name="millisecondsTimeout">
+             The maximum number of milliseconds to wait for Exclusive permission.
+0 performs a single attempt without waiting; a value less than 0 means an infinite wait.
+             </param>
+             <returns>
+             true if Exclusive permission was acquired;
+false if it was not acquired within the specified time.
+             </returns>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockScope.ReleaseExclusive">
+             <summary>
+             Releases the currently held Exclusive access permission.
+             </summary>
+             <remarks>This method must be called in a context where the current scope holds Exclusive permission.
+
+After the call, the current scope no longer holds Exclusive permission
+and must not continue executing application code that depends on it.
+
+After release completes, the lock returns to normal contention,
+and waiting Concurrent or Exclusive requests continue attempting to enter according to the lock's contention rules.
+
+To retain Concurrent permission after finishing the Exclusive region, call <c>ExclusiveToConcurrent()</c> instead of this method.
+
+A permission released manually is not released again by <see cref="M:IntomicLib.ConcurrentExclusiveLockScope.Dispose"/>.</remarks>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockScope.ExclusiveToConcurrent">
+             <summary>
+             Downgrades the currently held Exclusive access permission to Concurrent access permission.
+             </summary>
+             <remarks>This method must be called in a context where the current scope holds Exclusive permission.
+
+After the call, the current scope no longer holds Exclusive permission
+and must not continue executing application code that depends on it.
+
+The current scope continues to hold Concurrent permission
+and may later call <c>ReleaseConcurrent()</c> to release it manually.
+If it is not released manually, <see cref="M:IntomicLib.ConcurrentExclusiveLockScope.Dispose"/> releases it according to the final state held by the scope.
+
+This method preserves a continuous Concurrent access context after exclusive modification,
+avoiding the access window created by releasing Exclusive and then reacquiring Concurrent.</remarks>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockScope.TryConcurrentToExclusiveWithSwitchContextID(System.Int32)">
+             <summary>
+             While holding Concurrent permission, attempts to upgrade the current permission to Exclusive through SwitchContextID.
+When multiple Concurrent holders call this method simultaneously with the same newContextID, only the holder that successfully switches ContextID can upgrade.
+When callers use different newContextID values, multiple callers may each succeed, but their successful Exclusive regions are still isolated and ordered.
+After a successful upgrade, the current scope holds Exclusive permission; after a failed upgrade, the current scope's Concurrent permission is released automatically.
+             </summary>
+             <remarks>This method must be called in a context where the current scope holds Concurrent permission.
+
+After the call, the lock blocks new Concurrent entries into the current conversion window,
+and a caller that successfully upgrades executes in isolation under Exclusive semantics.
+Whether ContextID is switched successfully is determined by <c>SwitchContextID(newContextID)</c>.
+
+After success, the caller may call <c>ReleaseExclusive()</c> to release it manually.
+If it is not released manually, <see cref="M:IntomicLib.ConcurrentExclusiveLockScope.Dispose"/> releases it according to the final state held by the scope.
+
+After failure, the original Concurrent permission has already been released and the caller must not call <c>ReleaseConcurrent()</c>.</remarks>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockScope.TryConcurrentToExclusiveWithRaiseEpochID(System.Int32)">
+             <summary>
+             While holding Concurrent permission, attempts to upgrade the current permission to Exclusive through RaiseEpochID.
+The caller can advance the epoch and upgrade successfully only when newEpochID is greater than the current EpochID.
+When newEpochID is less than or equal to the current EpochID, the upgrade fails and EpochID remains unchanged.
+When multiple callers use different, increasing newEpochID values, multiple callers may each succeed, but their successful Exclusive regions are still isolated and ordered.
+After a successful upgrade, the current scope holds Exclusive permission; after a failed upgrade, the current scope's Concurrent permission is released automatically.
+             </summary>
+             <remarks>This method must be called in a context where the current scope holds Concurrent permission.
+
+This method is suitable when EpochID represents a lifecycle, version number, or phase number.
+EpochID may only advance to a greater value; it cannot remain unchanged or move backward.
+After the call, the lock blocks new Concurrent entries into the current conversion window,
+and a caller that successfully upgrades executes in isolation under Exclusive semantics.
+
+After success, the caller may call <c>ReleaseExclusive()</c> to release it manually.
+If it is not released manually, <see cref="M:IntomicLib.ConcurrentExclusiveLockScope.Dispose"/> releases it according to the final state held by the scope.
+
+After failure, the original Concurrent permission has already been released and the caller must not call <c>ReleaseConcurrent()</c>.</remarks>
+        </member>
+        <member name="M:IntomicLib.ConcurrentExclusiveLockScope.Dispose">
+            <summary>
+            Releases any access permission still held by this scope.
+            </summary>
+            <remarks>
+            Dispose releases Concurrent or Exclusive permission according only to the final held state recorded by the scope.
+Permissions already released manually are not released again.
+Dispose does not restore or clear ContextID / EpochID.
+            </remarks>
+        </member>
+    </members>
+</doc>
