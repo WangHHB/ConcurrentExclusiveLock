@@ -24,7 +24,7 @@ It is suitable for assigning an independent lock instance to each player, room, 
 - permission workflow orchestration;
 - automatic release on exceptional paths.
 
-The current **C# / .NET implementation** is the original and authoritative version. The project targets **.NET Standard 2.1** and also takes into account Unity3D hot-path requirements for strict allocation and GC control.
+The current **C# / .NET implementation** is the original and authoritative version.
 
 ---
 

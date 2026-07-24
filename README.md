@@ -24,7 +24,7 @@ dotnet add package ConcurrentExclusiveLock
 - 权限流程编排；
 - 异常路径自动释放。
 
-项目当前以 **C# / .NET** 实现为原始和权威版本，目标兼容 **.NET Standard 2.1**，并兼顾 Unity3D 热路径对堆分配和 GC 的严格要求。
+项目当前以 **C# / .NET** 实现为原始和权威版本。
 
 ---
 
