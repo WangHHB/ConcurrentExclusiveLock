@@ -1,6 +1,17 @@
 # ConcurrentExclusiveLock
 
-**ConcurrentExclusiveLock（CEL）** 是一个面向细粒度状态对象的 Concurrent / Exclusive 同步协议。
+[![C# Build and Test](https://github.com/WangHHB/ConcurrentExclusiveLock/actions/workflows/dotnet.yml/badge.svg)](https://github.com/WangHHB/ConcurrentExclusiveLock/actions/workflows/dotnet.yml)
+[![NuGet](https://img.shields.io/nuget/v/ConcurrentExclusiveLock.svg)](https://www.nuget.org/packages/ConcurrentExclusiveLock/)
+[![NuGet Downloads](https://img.shields.io/nuget/dt/ConcurrentExclusiveLock.svg)](https://www.nuget.org/packages/ConcurrentExclusiveLock/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+**ConcurrentExclusiveLock (CEL)** 是一个面向细粒度状态对象的 Concurrent / Exclusive 同步协议。
+
+## 安装
+
+```shell
+dotnet add package ConcurrentExclusiveLock
+```
 
 它适合为玩家、房间、实体、会话、Actor、聚合根或任务上下文分别配置独立锁实例，在大量锁对象并存的情况下，协调：
 
