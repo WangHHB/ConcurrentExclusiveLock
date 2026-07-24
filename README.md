@@ -319,6 +319,9 @@ public void ReadState()
         scope.AcquireConcurrent();
 
         ReadEntityState();
+
+        //最后可以手动释放，也可以让 scope 在 Dispose 时自动释放。
+        //scope.ReleaseConcurrent();
     }
 }
 ```
@@ -333,6 +336,9 @@ public void ModifyState()
         scope.AcquireExclusive();
 
         ModifyEntityState();
+
+        //最后可以手动释放，也可以让 scope 在 Dispose 时自动释放。
+        //scope.ReleaseExclusive();
     }
 }
 ```
@@ -355,6 +361,9 @@ public void ApplyEpoch(int targetEpoch)
         }
 
         ApplyEpochUpdate();
+
+        //当前最终持有的是 Exclusive，可以手动释放，也可以让 scope 在 Dispose 时自动释放。
+        //scope.ReleaseExclusive();
     }
 }
 ```
@@ -373,6 +382,9 @@ public void RebuildAndPublish()
         scope.ExclusiveToConcurrent();
 
         PublishSnapshot();
+
+        //当前最终持有的是 Concurrent，可以手动释放，也可以让 scope 在 Dispose 时自动释放。
+        //scope.ReleaseConcurrent();
     }
 }
 ```

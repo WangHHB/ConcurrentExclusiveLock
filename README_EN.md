@@ -318,6 +318,9 @@ public void ReadState()
         scope.AcquireConcurrent();
 
         ReadEntityState();
+
+        //You may release manually at last, or let scope.Dispose() release the final held access.
+        //scope.ReleaseConcurrent();
     }
 }
 ```
@@ -332,6 +335,9 @@ public void ModifyState()
         scope.AcquireExclusive();
 
         ModifyEntityState();
+
+        //You may release manually at last, or let scope.Dispose() release the final held access.
+        //scope.ReleaseExclusive();
     }
 }
 ```
@@ -349,12 +355,14 @@ public void ApplyEpoch(int targetEpoch)
 
         if (!scope.TryConcurrentToExclusiveWithRaiseEpochID(targetEpoch))
         {
-            // The original Concurrent permission has already been released
-            // when the upgrade fails.
+            // The original Concurrent permission has already been released when the upgrade fails.
             return;
         }
 
         ApplyEpochUpdate();
+
+        //The final held access is Exclusive; release it manually or let scope.Dispose() release it.
+        //scope.ReleaseExclusive();
     }
 }
 ```
@@ -373,6 +381,9 @@ public void RebuildAndPublish()
         scope.ExclusiveToConcurrent();
 
         PublishSnapshot();
+
+        //The final held access is Concurrent; release it manually or let scope.Dispose() release it.
+        //scope.ReleaseConcurrent();
     }
 }
 ```
