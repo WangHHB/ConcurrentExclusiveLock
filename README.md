@@ -129,8 +129,8 @@ CEL 支持从当前 Concurrent 上下文直接收敛到 Exclusive，而不需要
 当前提供的业务条件升级方法包括：
 
 ```csharp
-TryConcurrentToExclusiveWithSwitchContextID(int newContextID)
-TryConcurrentToExclusiveWithRaiseEpochID(int newEpochID)
+TryConcurrentToExclusiveWithSwitchContextID(int newContextID);
+TryConcurrentToExclusiveWithRaiseEpochID(int newEpochID);
 ```
 
 升级成功后，当前调用上下文持有 Exclusive。
@@ -207,41 +207,38 @@ ContextID 和 EpochID 都是锁协议之外的业务状态。它们的含义、�
 `ConcurrentExclusiveLock` 是底层同步协议。
 
 ```csharp
-private readonly ConcurrentExclusiveLock _locker =
-    ConcurrentExclusiveLock.Create();
+private readonly ConcurrentExclusiveLock _locker = ConcurrentExclusiveLock.Create();
 ```
 
 它是一个 `readonly struct`，真实共享状态保存在内部 Token 中。
 
 复制 `ConcurrentExclusiveLock` 值不会复制锁状态，复制后的值仍然引用同一份内部同步状态。
 
-默认初始化实例不可用，必须通过：
+默认初始化实例不可用，必须通过静态方法Create()创建：
 
 ```csharp
-ConcurrentExclusiveLock.Create()
+ConcurrentExclusiveLock.Create();
 ```
-
-创建。
 
 常用 API：
 
 ```csharp
-AcquireConcurrent()
-TryAcquireConcurrent()
+AcquireConcurrent();
+TryAcquireConcurrent();
 
-AcquireExclusive()
-TryAcquireExclusive()
+AcquireExclusive();
+TryAcquireExclusive();
 
-ReleaseConcurrent()
-ReleaseExclusive()
+ReleaseConcurrent();
+ReleaseExclusive();
 
-ExclusiveToConcurrent()
+ExclusiveToConcurrent();
 
-SwitchContextID(...)
-RaiseEpochID(...)
+SwitchContextID(...);
+RaiseEpochID(...);
 
-TryConcurrentToExclusiveWithSwitchContextID(...)
-TryConcurrentToExclusiveWithRaiseEpochID(...)
+TryConcurrentToExclusiveWithSwitchContextID(...);
+TryConcurrentToExclusiveWithRaiseEpochID(...);
 ```
 
 这一层适合需要精确控制每次权限获取、释放和转换的底层代码。
@@ -313,8 +310,7 @@ Pipeline 的定位可以概括为：
 ### Concurrent
 
 ```csharp
-private readonly ConcurrentExclusiveLock _locker =
-    ConcurrentExclusiveLock.Create();
+private readonly ConcurrentExclusiveLock _locker = ConcurrentExclusiveLock.Create();
 
 public void ReadState()
 {
@@ -396,13 +392,10 @@ pipeline.DoPipeline(
         ReadCurrentState();
     }),
 
-    ConcurrentExclusiveLockSegment.TryApplyIDConvergeExclusive(
-        () =>
-        {
-            ApplyNewEpoch();
-        },
-        targetEpoch,
-        ConcurrentExclusiveLockSegment.IDType.EpochID),
+    ConcurrentExclusiveLockSegment.TryApplyIDConvergeExclusive(() =>
+    {
+        ApplyNewEpoch();
+    }, targetEpoch, ConcurrentExclusiveLockSegment.IDType.EpochID),
 
     ConcurrentExclusiveLockSegment.ConvergeConcurrent(() =>
     {
@@ -481,6 +474,15 @@ ConcurrentExclusiveLockSegment.Concurrent(async () =>
 - 异步异常无法通过 Pipeline 正常传播；
 - Exclusive 基于具有线程所有权的同步机制，不能安全跨越 `await`。
 
+**注意：**由于 C# 的重载解析规则，始终抛出异常的同步 lambda 也可能匹配到禁用的 Func<Task> 重载。此时需要显式转换为 Action：
+
+```csharp
+ConcurrentExclusiveLockSegment.Exclusive((Action)(() =>
+{
+    throw new Exception();
+}));
+```
+
 ### DoPipelineAsync
 
 ```csharp
@@ -553,8 +555,8 @@ Token 的核心状态字段包括：
 CEL 提供两个观察属性：
 
 ```csharp
-ConcurrentExclusiveLockState ObservedState
-int ObservedContention
+ConcurrentExclusiveLockState ObservedState;
+int ObservedContention;
 ```
 
 ### ObservedState

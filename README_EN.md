@@ -129,8 +129,8 @@ CEL supports converging directly from the current Concurrent context to Exclusiv
 The current business-condition upgrade methods include:
 
 ```csharp
-TryConcurrentToExclusiveWithSwitchContextID(int newContextID)
-TryConcurrentToExclusiveWithRaiseEpochID(int newEpochID)
+TryConcurrentToExclusiveWithSwitchContextID(int newContextID);
+TryConcurrentToExclusiveWithRaiseEpochID(int newEpochID);
 ```
 
 After a successful upgrade, the current call context holds Exclusive permission.
@@ -207,8 +207,7 @@ The project provides three API layers.
 `ConcurrentExclusiveLock` is the low-level synchronization protocol.
 
 ```csharp
-private readonly ConcurrentExclusiveLock _locker =
-    ConcurrentExclusiveLock.Create();
+private readonly ConcurrentExclusiveLock _locker = ConcurrentExclusiveLock.Create();
 ```
 
 It is a `readonly struct`, while the actual shared state is stored in an internal token.
@@ -218,28 +217,28 @@ Copying a `ConcurrentExclusiveLock` value does not copy the lock state. The copi
 A default-initialized instance is invalid and must not be used. Instances must be created with:
 
 ```csharp
-ConcurrentExclusiveLock.Create()
+ConcurrentExclusiveLock.Create();
 ```
 
 Common APIs:
 
 ```csharp
-AcquireConcurrent()
-TryAcquireConcurrent()
+AcquireConcurrent();
+TryAcquireConcurrent();
 
-AcquireExclusive()
-TryAcquireExclusive()
+AcquireExclusive();
+TryAcquireExclusive();
 
-ReleaseConcurrent()
-ReleaseExclusive()
+ReleaseConcurrent();
+ReleaseExclusive();
 
-ExclusiveToConcurrent()
+ExclusiveToConcurrent();
 
-SwitchContextID(...)
-RaiseEpochID(...)
+SwitchContextID(...);
+RaiseEpochID(...);
 
-TryConcurrentToExclusiveWithSwitchContextID(...)
-TryConcurrentToExclusiveWithRaiseEpochID(...)
+TryConcurrentToExclusiveWithSwitchContextID(...);
+TryConcurrentToExclusiveWithRaiseEpochID(...);
 ```
 
 This layer is suitable for low-level code that requires precise control over each acquisition, release, and transition.
@@ -310,8 +309,7 @@ The role of the Pipeline can be summarized as:
 ### Concurrent
 
 ```csharp
-private readonly ConcurrentExclusiveLock _locker =
-    ConcurrentExclusiveLock.Create();
+private readonly ConcurrentExclusiveLock _locker = ConcurrentExclusiveLock.Create();
 
 public void ReadState()
 {
@@ -394,13 +392,10 @@ pipeline.DoPipeline(
         ReadCurrentState();
     }),
 
-    ConcurrentExclusiveLockSegment.TryApplyIDConvergeExclusive(
-        () =>
-        {
-            ApplyNewEpoch();
-        },
-        targetEpoch,
-        ConcurrentExclusiveLockSegment.IDType.EpochID),
+    ConcurrentExclusiveLockSegment.TryApplyIDConvergeExclusive(() =>
+    {
+        ApplyNewEpoch();
+    }, targetEpoch, ConcurrentExclusiveLockSegment.IDType.EpochID),
 
     ConcurrentExclusiveLockSegment.ConvergeConcurrent(() =>
     {
@@ -454,7 +449,7 @@ Even when the previous Segment already holds the same permission, the Pipeline r
 Pipeline Segments use synchronous delegates:
 
 ```csharp
-Action Segment
+Action Segment;
 ```
 
 Therefore, the Pipeline is a **synchronous permission workflow orchestrator**.
@@ -478,6 +473,14 @@ The project provides disabled `Func<Task>` overloads that reject directly suppli
 - the Pipeline could release or transition permission before asynchronous continuation code completes;
 - asynchronous exceptions could not propagate normally through the Pipeline;
 - Exclusive relies on a thread-owned synchronization mechanism and cannot safely cross an `await`.
+
+Note: Due to C# overload resolution rules, a synchronous lambda that always throws may also match the disabled Func<Task> overload. In this case, explicitly cast the lambda to Action:
+```csharp
+ConcurrentExclusiveLockSegment.Exclusive((Action)(() =>
+{
+    throw new Exception();
+}));
+```
 
 ### DoPipelineAsync
 
@@ -551,8 +554,8 @@ On extremely hot paths, delegates and Segment arrays can be cached, and the sync
 CEL provides two observation properties:
 
 ```csharp
-ConcurrentExclusiveLockState ObservedState
-int ObservedContention
+ConcurrentExclusiveLockState ObservedState;
+int ObservedContention;
 ```
 
 ### ObservedState
