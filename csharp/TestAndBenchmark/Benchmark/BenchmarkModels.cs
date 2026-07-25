@@ -32,7 +32,7 @@ internal static class BenchmarkScenarioCatalog
     public static IReadOnlyList<BenchmarkScenario> All => Scenarios;
 }
 
-/// <summary>单个“锁 + Work + 读写比例”测试案例的完整结果。</summary>
+/// <summary>单个"锁 + Work + 读写比例"测试案例的完整结果。</summary>
 internal readonly struct BenchmarkResult
 {
     public string LockName { get; }
@@ -41,6 +41,8 @@ internal readonly struct BenchmarkResult
     public long ReadWorks { get; }
     public long WriteWorks { get; }
     public long StateHash { get; }
+    public long WriteLatencyTicks { get; }
+    public long WriteCount { get; }
 
     /// <summary>所有业务返回值的聚合，仅用于阻止业务代码被优化消除。</summary>
     public long Checksum { get; }
@@ -54,6 +56,8 @@ internal readonly struct BenchmarkResult
         long readWorks,
         long writeWorks,
         long stateHash,
+        long writeLatencyTicks,
+        long writeLatencyWriteCount,
         long checksum)
     {
         LockName = lockName;
@@ -62,6 +66,8 @@ internal readonly struct BenchmarkResult
         ReadWorks = readWorks;
         WriteWorks = writeWorks;
         StateHash = stateHash;
+        WriteLatencyTicks = writeLatencyTicks;
+        WriteCount = writeLatencyWriteCount;
         Checksum = checksum;
     }
 }

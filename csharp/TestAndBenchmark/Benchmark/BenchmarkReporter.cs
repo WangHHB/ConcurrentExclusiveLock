@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Runtime;
 
 namespace LockBenchmark;
@@ -12,6 +13,7 @@ internal static class BenchmarkReporter
     private const int WorksWidth = 12;
     private const int WorkPerCpuWidth = 11;
     private const int CountWidth = 12;
+    private const int LatencyWidth = 12;
     private const int StateWidth = 16;
     private const string ColumnGap = "  ";
 
@@ -53,6 +55,7 @@ internal static class BenchmarkReporter
             $"{"work/cpu%",WorkPerCpuWidth}{ColumnGap}" +
             $"{"reads",CountWidth}{ColumnGap}" +
             $"{"writes",CountWidth}{ColumnGap}" +
+            $"{"avg write ns",LatencyWidth}{ColumnGap}" +
             $"{"state",StateWidth}");
     }
 
@@ -67,6 +70,9 @@ internal static class BenchmarkReporter
         string elapsed = $"{result.Elapsed.TotalSeconds:0.000}s";
         string cpuPercent = $"{result.CpuPercent:0.0}%";
         string state = $"{unchecked((ulong)result.StateHash):X16}";
+        double avgWriteLatencyNs = result.WriteCount == 0
+            ? 0
+            : result.WriteLatencyTicks * 1_000_000_000.0 / Stopwatch.Frequency / result.WriteCount;
 
         Console.WriteLine(
             $"  {result.LockName,-LockNameWidth}{ColumnGap}" +
@@ -77,6 +83,7 @@ internal static class BenchmarkReporter
             $"{workPerCpuPercent,WorkPerCpuWidth:0}{ColumnGap}" +
             $"{result.ReadWorks,CountWidth:n0}{ColumnGap}" +
             $"{result.WriteWorks,CountWidth:n0}{ColumnGap}" +
+            $"{avgWriteLatencyNs,LatencyWidth:0.0}{ColumnGap}" +
             $"{state,StateWidth}");
     }
 

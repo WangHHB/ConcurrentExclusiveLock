@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Threading;
 
 namespace LockBenchmark;
@@ -19,7 +20,6 @@ internal static class BenchmarkCaseRunner
 
         try
         {
-            // N 份案例各自拥有独立的锁和 Work，等价于同时运行 N 份阶段一单锁测试。
             for (int lockIndex = 0; lockIndex < options.LockInstances; lockIndex++)
             {
                 strategies[lockIndex] = strategyDefinition.Create();
@@ -29,12 +29,12 @@ internal static class BenchmarkCaseRunner
 
             long totalReadWorks = 0;
             long totalWriteWorks = 0;
+            long totalWriteLatencyTicks = 0;
+            long totalWriteLatencyCount = 0;
             long checksum = 0;
             int threadsPerLock = options.Threads;
             int totalThreads = checked((int)options.TotalWorkerThreads);
 
-            // 只建立一个全局计时区间。这样 elapsed、CPU time 和总 Works 完全对齐，
-            // 不会像多个重叠子计时器那样重复累计进程 CPU 时间。
             ThreadRunMeasurement measurement = DedicatedThreadHarness.Run(
                 totalThreads,
                 "LockBenchmark",
@@ -45,12 +45,10 @@ internal static class BenchmarkCaseRunner
                     ILockStrategy strategy = strategies[lockIndex];
                     IWork work = works[lockIndex];
 
-                    // 不同锁实例使用互相解相关的序列，避免大量独立锁在同一操作位置
-                    // 同步发起读/写形成全局竞争波；相同 lock/worker 坐标在各锁实现间
-                    // 仍得到相同 seed，因此横向比较保持完全可复现和公平。
                     uint random = CreateWorkerSeed(lockIndex, localWorkerIndex);
                     long localReadWorks = 0;
                     long localWriteWorks = 0;
+                    long localWriteLatencyTicks = 0;
                     long localChecksum = 0;
 
                     try
@@ -67,7 +65,9 @@ internal static class BenchmarkCaseRunner
                             }
                             else
                             {
+                                long start = Stopwatch.GetTimestamp();
                                 localChecksum = unchecked(localChecksum + strategy.ExecuteWrite(work));
+                                localWriteLatencyTicks += Stopwatch.GetTimestamp() - start;
                                 localWriteWorks++;
                             }
                         }
@@ -76,6 +76,8 @@ internal static class BenchmarkCaseRunner
                     {
                         Interlocked.Add(ref totalReadWorks, localReadWorks);
                         Interlocked.Add(ref totalWriteWorks, localWriteWorks);
+                        Interlocked.Add(ref totalWriteLatencyTicks, localWriteLatencyTicks);
+                        Interlocked.Add(ref totalWriteLatencyCount, localWriteWorks);
                         Interlocked.Add(ref checksum, localChecksum);
                     }
                 });
@@ -91,11 +93,12 @@ internal static class BenchmarkCaseRunner
                 totalReadWorks,
                 totalWriteWorks,
                 CombineStateHashes(works),
+                totalWriteLatencyTicks,
+                totalWriteLatencyCount,
                 checksum);
         }
         finally
         {
-            // 释放发生在全部工作线程结束后，不进入测试计时。
             for (int lockIndex = works.Length - 1; lockIndex >= 0; lockIndex--)
             {
                 works[lockIndex]?.Dispose();
