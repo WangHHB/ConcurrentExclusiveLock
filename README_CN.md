@@ -689,6 +689,96 @@ ConcurrentExclusiveLock 不试图成为适用于所有问题的通用锁，也�
 
 测试代码的作用是辅助验证当前实现、扩大路径覆盖范围并提供性能观察数据；核心同步协议、API 设计与语义定义以 C# / .NET 主项目实现为准。
 
+基准性能测试：
+Windows 11，AMD 5700X定频4.5GHz
+TestAndBenchmark.exe --lock-instances 1 --threads 64 --workload memory --operations 10000 --memory-mb 64 --read-work 64 --write-work 64
+Scenario: read/write 100/0
+  lock type                    elapsed       cpu%       works/s  works/s/lock    work/cpu%         reads        writes             state
+  lock                          0.925s      10.3%        691547        691547        66873       640,000             0  0000000000000000
+  ReaderWriterLockSlim          0.155s      96.8%       4120761       4120761        42556       640,000             0  0000000000000000
+  CEL                           0.101s      93.0%       6347424       6347424        68267       640,000             0  0000000000000000
+  CEL(ExclusiveOnly)            0.871s      10.1%        734805        734805        72818       640,000             0  0000000000000000
+
+Scenario: read/write 99.5/0.5
+  lock type                    elapsed       cpu%       works/s  works/s/lock    work/cpu%         reads        writes             state
+  lock                          0.854s      10.6%        749177        749177        70469       636,838         3,162  8398C18E7F9AA0EB
+  ReaderWriterLockSlim          0.238s      97.7%       2690213       2690213        27536       636,838         3,162  8398C18E7F9AA0EB
+  CEL                           0.126s      79.2%       5085666       5085666        64251       636,838         3,162  8398C18E7F9AA0EB
+  CEL(ExclusiveOnly)            0.869s      10.9%        736795        736795        67563       636,838         3,162  8398C18E7F9AA0EB
+
+Scenario: read/write 90/10
+  lock type                    elapsed       cpu%       works/s  works/s/lock    work/cpu%         reads        writes             state
+  lock                          0.855s      11.4%        748609        748609        65536       576,034        63,966  4304798A1CB10952
+  ReaderWriterLockSlim          0.553s      75.2%       1157208       1157208        15384       576,034        63,966  4304798A1CB10952
+  CEL                           0.301s      49.3%       2125807       2125807        43116       576,034        63,966  4304798A1CB10952
+  CEL(ExclusiveOnly)            0.875s      11.2%        731202        731202        65536       576,034        63,966  4304798A1CB10952
+
+Scenario: read/write 50/50
+  lock type                    elapsed       cpu%       works/s  works/s/lock    work/cpu%         reads        writes             state
+  lock                          0.882s      10.6%        725572        725572        68267       320,007       319,993  7F3AA8C4A6F5CFA7
+  ReaderWriterLockSlim          1.404s      58.0%        455962        455962         7858       320,007       319,993  7F3AA8C4A6F5CFA7
+  CEL                           0.732s      18.9%        874268        874268        46152       320,007       319,993  7F3AA8C4A6F5CFA7
+  CEL(ExclusiveOnly)            0.905s      11.1%        707073        707073        63627       320,007       319,993  7F3AA8C4A6F5CFA7
+
+Scenario: read/write 30/70
+  lock type                    elapsed       cpu%       works/s  works/s/lock    work/cpu%         reads        writes             state
+  lock                          0.897s      11.0%        713392        713392        64887       191,321       448,679  984C4BC0324B2349
+  ReaderWriterLockSlim          1.547s      45.6%        413582        413582         9077       191,321       448,679  984C4BC0324B2349
+  CEL                           0.923s      11.8%        693114        693114        58514       191,321       448,679  984C4BC0324B2349
+  CEL(ExclusiveOnly)            0.913s      10.0%        701325        701325        70469       191,321       448,679  984C4BC0324B2349
+
+Scenario: read/write 0/100
+  lock type                    elapsed       cpu%       works/s  works/s/lock    work/cpu%         reads        writes             state
+  lock                          0.906s      10.2%        706203        706203        68985             0       640,000  9C619B979129B421
+  ReaderWriterLockSlim          1.056s      21.7%        605940        605940        27888             0       640,000  9C619B979129B421
+  CEL                           0.921s      10.6%        695243        695243        65536             0       640,000  9C619B979129B421
+  CEL(ExclusiveOnly)            0.922s      10.5%        694270        694270        66198             0       640,000  9C619B979129B421
+
+
+TestAndBenchmark.exe --lock-instances 8 --threads 8 --workload memory --operations 10000 --memory-mb 64 --read-work 32 --write-work 32
+Scenario: read/write 100/0
+  lock type                    elapsed       cpu%       works/s  works/s/lock    work/cpu%         reads        writes             state
+  lock                          0.157s      80.6%       4064604        508076        50412       640,000             0  A57B1FF0E740A896
+  ReaderWriterLockSlim          0.075s     100.6%       8560396       1070049        85112       640,000             0  A57B1FF0E740A896
+  CEL                           0.071s     108.4%       8993779       1124222        82957       640,000             0  A57B1FF0E740A896
+  CEL(ExclusiveOnly)            0.119s      86.4%       5392612        674076        62415       640,000             0  A57B1FF0E740A896
+
+Scenario: read/write 99.5/0.5
+  lock type                    elapsed       cpu%       works/s  works/s/lock    work/cpu%         reads        writes             state
+  lock                          0.118s      84.3%       5417815        677227        64251       636,726         3,274  5FFADA82B8F7C3C6
+  ReaderWriterLockSlim          0.073s      97.4%       8741533       1092692        89775       636,726         3,274  5FFADA82B8F7C3C6
+  CEL                           0.071s      86.9%       9039229       1129904       104025       636,726         3,274  5FFADA82B8F7C3C6
+  CEL(ExclusiveOnly)            0.120s      82.4%       5345767        668221        64887       636,726         3,274  5FFADA82B8F7C3C6
+
+Scenario: read/write 90/10
+  lock type                    elapsed       cpu%       works/s  works/s/lock    work/cpu%         reads        writes             state
+  lock                          0.122s      83.3%       5248797        656100        63015       575,901        64,099  7F8372CDB19E8250
+  ReaderWriterLockSlim          0.106s      85.7%       6042644        755331        70469       575,901        64,099  7F8372CDB19E8250
+  CEL                           0.092s      94.4%       6950538        868817        73636       575,901        64,099  7F8372CDB19E8250
+  CEL(ExclusiveOnly)            0.123s      86.3%       5191245        648906        60125       575,901        64,099  7F8372CDB19E8250
+
+Scenario: read/write 50/50
+  lock type                    elapsed       cpu%       works/s  works/s/lock    work/cpu%         reads        writes             state
+  lock                          0.138s      88.7%       4648342        581043        52429       320,069       319,931  77DA7C15C44409F7
+  ReaderWriterLockSlim          0.133s      88.8%       4807378        600922        54162       320,069       319,931  77DA7C15C44409F7
+  CEL                           0.135s      91.0%       4733682        591710        52013       320,069       319,931  77DA7C15C44409F7
+  CEL(ExclusiveOnly)            0.134s      86.7%       4775065        596883        55072       320,069       319,931  77DA7C15C44409F7
+
+Scenario: read/write 30/70
+  lock type                    elapsed       cpu%       works/s  works/s/lock    work/cpu%         reads        writes             state
+  lock                          0.138s      84.8%       4633904        579238        54613       191,782       448,218  E4C312562E36CC29
+  ReaderWriterLockSlim          0.143s      95.7%       4480604        560075        46811       191,782       448,218  E4C312562E36CC29
+  CEL                           0.143s      55.1%       4460266        557533        80909       191,782       448,218  E4C312562E36CC29
+  CEL(ExclusiveOnly)            0.139s      89.3%       4607001        575875        51603       191,782       448,218  E4C312562E36CC29
+
+Scenario: read/write 0/100
+  lock type                    elapsed       cpu%       works/s  works/s/lock    work/cpu%         reads        writes             state
+  lock                          0.148s      87.2%       4330510        541314        49648             0       640,000  4CD28C3524A9BA6F
+  ReaderWriterLockSlim          0.160s      91.9%       3987673        498459        43401             0       640,000  4CD28C3524A9BA6F
+  CEL                           0.146s      78.9%       4383514        547939        55539             0       640,000  4CD28C3524A9BA6F
+  CEL(ExclusiveOnly)            0.150s      90.9%       4256777        532097        46811             0       640,000  4CD28C3524A9BA6F
+
+
 ---
 
 ## 项目状态
