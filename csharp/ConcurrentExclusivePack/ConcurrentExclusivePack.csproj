@@ -6,7 +6,7 @@
     <Nullable>disable</Nullable>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
 
-    <Version>1.0.2</Version>
+    <Version>1.0.3</Version>
     <PackageId>ConcurrentExclusiveLock</PackageId>
     <Title>ConcurrentExclusiveLock</Title>
     <Authors>YiBo Wang</Authors>
@@ -19,8 +19,8 @@
     <RepositoryType>git</RepositoryType>
 
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageReadmeFile>README_EN.md</PackageReadmeFile>
-    <PackageReleaseNotes>Initial NuGet package release for version 1.0.1.</PackageReleaseNotes>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageReleaseNotes>Initial NuGet package release for version 1.0.3.</PackageReleaseNotes>
 
     <IsPackable>true</IsPackable>
     <IncludeSymbols>true</IncludeSymbols>
@@ -37,9 +37,20 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <None Include="..\..\README_EN.md" Pack="true" PackagePath="\" Link="README_EN.md" />
 
-    <None Include="..\..\LICENSE" Pack="true" PackagePath="\" Link="LICENSE" />
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="\" Link="LICENSE">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Remove="README.md" />
+    <None Include="$(MSBuildProjectDirectory)\README.md"
+          Pack="true"
+          PackagePath="\"
+          Link="README.md">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
   <!--
