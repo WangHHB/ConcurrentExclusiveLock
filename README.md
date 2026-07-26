@@ -14,7 +14,7 @@
 ## Implementations
 
 - [C#](./csharp) — Reference implementation
-- [Java](https://github.com/WangHHB/ConcurrentExclusiveLock/blob/main/java/README.md) — Java 17+, available on [Maven Central](https://central.sonatype.com/artifact/io.github.wanghhb/concurrent-exclusive-lock)
+- [Java](./java/README.md) — Java 17+, available on [Maven Central](https://central.sonatype.com/artifact/io.github.wanghhb/concurrent-exclusive-lock)
 - C++ — Planned
 
 
