@@ -2,6 +2,12 @@
   <a href="README.md">English</a> ｜ <strong>简体中文</strong>
 </p>
 
+## 许可证
+
+ConcurrentExclusiveLock 采用 MIT License 或 Apache License 2.0 双重许可，您可以自行选择其中任意一种许可证。
+
+详细信息请参阅 [`LICENSE-MIT`](LICENSE-MIT) 和 [`LICENSE-APACHE-2.0`](LICENSE-APACHE-2.0)。
+
 # ConcurrentExclusiveLock
 
 [![C# Build and Test](https://github.com/WangHHB/ConcurrentExclusiveLock/actions/workflows/dotnet.yml/badge.svg)](https://github.com/WangHHB/ConcurrentExclusiveLock/actions/workflows/dotnet.yml)
