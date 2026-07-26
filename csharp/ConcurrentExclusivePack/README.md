@@ -1,7 +1,6 @@
 ## License
 
 ConcurrentExclusiveLock is dual-licensed under the MIT License or the Apache License 2.0, at your option.
-
 See [`LICENSE-MIT`](LICENSE-MIT) and [`LICENSE-APACHE-2.0`](LICENSE-APACHE-2.0) for details.
 
 # ConcurrentExclusiveLock

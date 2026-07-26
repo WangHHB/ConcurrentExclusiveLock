@@ -5,7 +5,6 @@
 ## 许可证
 
 ConcurrentExclusiveLock 采用 MIT License 或 Apache License 2.0 双重许可，您可以自行选择其中任意一种许可证。
-
 详细信息请参阅 [`LICENSE-MIT`](LICENSE-MIT) 和 [`LICENSE-APACHE-2.0`](LICENSE-APACHE-2.0)。
 
 # ConcurrentExclusiveLock
@@ -13,7 +12,7 @@ ConcurrentExclusiveLock 采用 MIT License 或 Apache License 2.0 双重许可�
 [![C# Build and Test](https://github.com/WangHHB/ConcurrentExclusiveLock/actions/workflows/dotnet.yml/badge.svg)](https://github.com/WangHHB/ConcurrentExclusiveLock/actions/workflows/dotnet.yml)
 [![NuGet](https://img.shields.io/nuget/v/ConcurrentExclusiveLock.svg)](https://www.nuget.org/packages/ConcurrentExclusiveLock/)
 [![NuGet Downloads](https://img.shields.io/nuget/dt/ConcurrentExclusiveLock.svg)](https://www.nuget.org/packages/ConcurrentExclusiveLock/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](#许可证)
 
 **ConcurrentExclusiveLock (CEL)** 是一个面向细粒度状态对象的 Concurrent / Exclusive 同步协议。
 
