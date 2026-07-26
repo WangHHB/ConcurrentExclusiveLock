@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Threading;
 using IntomicLib;
 
@@ -928,7 +928,7 @@ internal sealed class ConcurrentExclusiveLockPipelineCorrectnessCase : IAdvanced
             int capturedIndex = index;
             bool emptyBusiness = random.Next(4) == 0;
             string label = $"worker={worker}, round={round}, segment={capturedIndex}";
-            switch (random.Next(7))
+            switch (random.Next(8))
             {
                 case 0:
                     segments[index] = ConcurrentExclusiveLockSegment.None(() =>
@@ -974,6 +974,14 @@ internal sealed class ConcurrentExclusiveLockPipelineCorrectnessCase : IAdvanced
                     }, id, idType);
                     break;
                 case 5:
+                    segments[index] = ConcurrentExclusiveLockSegment.ConvergeExclusive(() =>
+                    {
+                        tracker.EnterExclusive($"Pipeline random ConvergeExclusive ({label}, state={locker.ObservedState})");
+                        DoRandomWork(emptyBusiness, worker, round, capturedIndex);
+                        tracker.ExitExclusive($"Pipeline random ConvergeExclusive ({label}, state={locker.ObservedState})");
+                    });
+                    break;
+                case 6:
                     segments[index] = ConcurrentExclusiveLockSegment.TryExclusive(() =>
                     {
                         tracker.EnterExclusive($"Pipeline random TryExclusive ({label}, state={locker.ObservedState})");

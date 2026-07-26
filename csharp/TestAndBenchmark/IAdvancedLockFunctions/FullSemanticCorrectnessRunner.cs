@@ -24,6 +24,7 @@ internal static class FullSemanticCorrectnessRunner
             new LockContentionSnapshotCorrectnessCase(),
             new ExclusiveToConcurrentCorrectnessCase(),
             new PermissionConversionCycleCorrectnessCase(),
+            new UnconditionalConcurrentToExclusiveCase(),
             new ConcurrentToExclusiveCorrectnessCase(),
             new ConcurrentExclusiveLockPipelineCorrectnessCase(
                 lockInstances,

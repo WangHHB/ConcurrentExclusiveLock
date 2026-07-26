@@ -20,10 +20,10 @@ internal enum WorkloadKind
 internal sealed class BenchmarkOptions
 {
     internal const int DefaultThreads = 32;
-    internal const int DefaultLockInstances = 1000;
-    internal const int DefaultOperationsPerThread = 100;
-    internal const int DefaultReadSteps = 64;
-    internal const int DefaultWriteSteps = 128;
+    internal const int DefaultLockInstances = 1;
+    internal const int DefaultOperationsPerThread = 10000;
+    internal const int DefaultReadSteps = 32;
+    internal const int DefaultWriteSteps = 32;
     internal const int DefaultMemoryWorkingSetMb = 64;
     internal const int DefaultDictionaryEntries = 1280;
     internal const int DefaultAdvancedOperationsPerLock = 1;
@@ -46,7 +46,7 @@ internal sealed class BenchmarkOptions
     public int WriteSteps { get; internal set; } = DefaultWriteSteps;
     public int MemoryWorkingSetMb { get; internal set; } = DefaultMemoryWorkingSetMb;
     public int DictionaryEntries { get; internal set; } = DefaultDictionaryEntries;
-    public WorkloadKind Workload { get; internal set; } = WorkloadKind.Dictionary;
+    public WorkloadKind Workload { get; internal set; } = WorkloadKind.Memory;
     public bool ShowHelp { get; internal set; }
     public bool RunAdvancedCorrectness { get; internal set; }
     public bool RunAdvancedPerformance { get; internal set; }
@@ -353,16 +353,16 @@ internal static class UsagePrinter
     public static void Print()
     {
         Console.WriteLine("Usage:");
-        Console.WriteLine("  LockBenchmark.exe --lock-instances 1 --threads 32 --workload ledger --operations 100000 --read-work 64 --write-work 128");
-        Console.WriteLine("  LockBenchmark.exe --advanced-correctness");
-        Console.WriteLine("  LockBenchmark.exe --advanced-perf --threads 64 --operations 100000 --work 64");
-        Console.WriteLine("  LockBenchmark.exe --pipeline-semantics --lock-instances 1 --semantic-workers 64 --semantic-operations 1000");
-        Console.WriteLine("  LockBenchmark.exe --pipeline-stress 10m --lock-instances 1 --semantic-workers 64 --semantic-operations 1000");
-        Console.WriteLine("  LockBenchmark.exe --advanced-correctness --lock-instances 1000 --advanced-operations 4");
-        Console.WriteLine("  LockBenchmark.exe --full-semantics --lock-instances 64 --semantic-workers 4 --semantic-operations 256");
-        Console.WriteLine("  LockBenchmark.exe --full-semantics-stress 10m --lock-instances 1 --semantic-workers 64 --semantic-operations 256");
-        Console.WriteLine("  LockBenchmark.exe --endurance 24h");
-        Console.WriteLine("  LockBenchmark.exe --contention-stress 10s --threads 128");
+        Console.WriteLine("  TestAndBenchmark.exe --lock-instances 1 --threads 32 --workload memory --operations 10000 --memory-mb 64 --read-work 32 --write-work 32");
+        Console.WriteLine("  TestAndBenchmark.exe --advanced-correctness");
+        Console.WriteLine("  TestAndBenchmark.exe --advanced-perf --threads 64 --operations 100000 --work 64");
+        Console.WriteLine("  TestAndBenchmark.exe --pipeline-semantics --lock-instances 1 --semantic-workers 64 --semantic-operations 1000");
+        Console.WriteLine("  TestAndBenchmark.exe --pipeline-stress 10m --lock-instances 1 --semantic-workers 64 --semantic-operations 1000");
+        Console.WriteLine("  TestAndBenchmark.exe --advanced-correctness --lock-instances 1000 --advanced-operations 4");
+        Console.WriteLine("  TestAndBenchmark.exe --full-semantics --lock-instances 64 --semantic-workers 4 --semantic-operations 256");
+        Console.WriteLine("  TestAndBenchmark.exe --full-semantics-stress 10m --lock-instances 1 --semantic-workers 64 --semantic-operations 256");
+        Console.WriteLine("  TestAndBenchmark.exe --endurance 24h");
+        Console.WriteLine("  TestAndBenchmark.exe --contention-stress 10s --threads 128");
         Console.WriteLine();
         Console.WriteLine("Options:");
         Console.WriteLine($"  --lock-instances   Independent single-lock cases. Default: {BenchmarkOptions.DefaultLockInstances}");
@@ -371,7 +371,7 @@ internal static class UsagePrinter
         Console.WriteLine("  --work             Business steps executed inside each held-lock TickRead/TickWrite.");
         Console.WriteLine($"  --read-work        Internal steps per TickRead. Default: {BenchmarkOptions.DefaultReadSteps}");
         Console.WriteLine($"  --write-work       Internal steps per TickWrite. Default: {BenchmarkOptions.DefaultWriteSteps}");
-        Console.WriteLine("  --workload         Select exactly one: cpu, memory, dictionary, ledger, payload. Default: cpu");
+        Console.WriteLine("  --workload         Select exactly one: cpu, memory, dictionary, ledger, payload. Default: memory");
         Console.WriteLine($"  --memory-mb        Shared memory workload size in MiB. Default: {BenchmarkOptions.DefaultMemoryWorkingSetMb}");
         Console.WriteLine($"  --dictionary-size  Entry count used by dictionary/ledger/payload. Default: {BenchmarkOptions.DefaultDictionaryEntries}");
         Console.WriteLine("  --advanced-correctness  Run stage-3 advanced lock semantic tests only.");
