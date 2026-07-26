@@ -364,7 +364,8 @@ public void ExecuteCommand(PlayerCommand command)
             CommitCommand(prepared);
         }
 
-        scope.ReleaseExclusive();
+        //The final held access is Exclusive; release it manually or let scope.Dispose() release it.
+        //scope.ReleaseExclusive();
     }
 }
 ```

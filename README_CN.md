@@ -374,7 +374,8 @@ public void ExecuteCommand(PlayerCommand command)
             CommitCommand(prepared);
         }
 
-        scope.ReleaseExclusive();
+        //当前最终持有的是 Exclusive，可以手动释放，也可以让 scope 在 Dispose 时自动释放。
+        //scope.ReleaseExclusive();
     }
 }
 ```
