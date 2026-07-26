@@ -134,6 +134,7 @@ CEL supports converging directly from the current Concurrent context to Exclusiv
 The current business-condition upgrade methods include:
 
 ```csharp
+ConcurrentToExclusive();
 TryConcurrentToExclusiveWithSwitchContextID(int newContextID);
 TryConcurrentToExclusiveWithRaiseEpochID(int newEpochID);
 ```
@@ -242,6 +243,7 @@ ExclusiveToConcurrent();
 SwitchContextID(...);
 RaiseEpochID(...);
 
+ConcurrentToExclusive();
 TryConcurrentToExclusiveWithSwitchContextID(...);
 TryConcurrentToExclusiveWithRaiseEpochID(...);
 ```
@@ -347,7 +349,36 @@ public void ModifyState()
 }
 ```
 
-### Inspect Under Concurrent, Then Upgrade
+### Upgrade Concurrent To Exclusive
+
+```csharp
+public void ExecuteCommand(PlayerCommand command)
+{
+    using (var scope = new ConcurrentExclusiveLockScope(_locker))
+    {
+        scope.AcquireConcurrent();
+
+        if (!CanPrepareCommand(command))
+        {
+            scope.ReleaseConcurrent();
+            return;
+        }
+
+        PreparedCommand prepared = PrepareCommand(command);
+
+        scope.ConcurrentToExclusive();
+
+        if (CanCommitCommand(prepared))
+        {
+            CommitCommand(prepared);
+        }
+
+        scope.ReleaseExclusive();
+    }
+}
+```
+
+### Inspect Under Concurrent, Then Upgrade To Exclusive
 
 ```csharp
 public void ApplyEpoch(int targetEpoch)
@@ -435,7 +466,8 @@ pipeline.DoPipeline(
 | `Exclusive` | Acquires an independent Exclusive permission; consecutive Segments of the same type are still released and reacquired |
 | `TestExclusive` | Attempts Exclusive only when the lock is Idle and does not preempt existing Concurrent holders |
 | `TryExclusive` | Attempts preemptive Exclusive and may block new Concurrent entries |
-| `ConvergeConcurrent` | Continues an existing Concurrent context or downgrades Exclusive to Concurrent in place |
+| `ConvergeConcurrent` | Continues existing Concurrent access, downgrades Exclusive to Concurrent in place when possible, or acquires Concurrent access |
+| `ConvergeExclusive` | Continues existing Exclusive access, upgrades Concurrent to Exclusive in place, or acquires Exclusive access |
 | `TryApplyIDConvergeExclusive` | Attempts to apply a ContextID / EpochID and converges to Exclusive after success |
 
 ### Try Segment Behavior
@@ -454,9 +486,11 @@ When a Try Segment does not obtain its execution condition:
 
 Even when the previous Segment already holds the same permission, the Pipeline releases and reacquires it, giving other contenders an opportunity to enter.
 
-`ConvergeConcurrent` represents continuing or establishing a continuous Concurrent context.
+`ConvergeConcurrent` represents continuing an existing Concurrent context, attempting to establish one by downgrading an Exclusive context in place, or acquiring a new Concurrent context.
 
-`TryApplyIDConvergeExclusive` represents entering or continuing an Exclusive context after a business ID has been applied successfully.
+`ConvergeExclusive` represents continuing an existing Exclusive context, establishing one by upgrading a Concurrent context in place, or acquiring a new Exclusive context.
+
+`TryApplyIDConvergeExclusive` represents continuing an existing Exclusive context, establishing one, or acquiring a new Exclusive context after the business ID has been successfully applied.
 
 ---
 

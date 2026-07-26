@@ -1,51 +1,51 @@
-﻿/*设计说明：
- * 本锁表达的是访问权限，而不是读写意图。
+﻿/* Design notes:
+ * This lock expresses access permissions rather than read/write intent.
  *
- * Concurrent 表示当前操作可以与其他 Concurrent 操作同时进入；
- * Exclusive 表示当前操作必须独占进入，不能与任何其他操作并发。
+ * Concurrent Concurrent means that the current operation may enter together with other Concurrent operations;
+ * Exclusive Exclusive means that the current operation must enter exclusively and cannot run concurrently with any other operation.
  *
- * 业务代码在 Exclusive 区域内仍然可能包含大量读取逻辑；
- * Concurrent 区域内也可能执行由业务保证互不冲突的修改。
+ * Business code inside an Exclusive region may still contain substantial read logic;
+ * Concurrent a Concurrent region may also perform modifications that the business logic guarantees will not conflict.
  *
- * 因此，Concurrent / Exclusive 描述的是“是否允许并发访问”，
- * 而不是“代码内部是否读取或写入数据”。
+ * Therefore, Concurrent / Exclusive describes whether concurrent access is permitted,
+ * not whether the code itself reads or writes data.
  *
- * Concurrent 普通获取与释放以轻量原子计数为主，不进入 Monitor 排序队列。
+ * Concurrent Ordinary Concurrent acquisition and release primarily use lightweight atomic counting and do not enter the Monitor scheduling queue.
  *
- * Exclusive 是抢占式的。Exclusive 请求进入竞争窗口后，会阻止新的
- * Concurrent 继续进入，并等待已经持有的 Concurrent 自然退出。
- * 这是本锁的最大特点。
+ * Exclusive Exclusive is preemptive. After an Exclusive request enters the contention window, it blocks new
+ * Concurrent Concurrent operations from entering and waits for existing Concurrent holders to leave naturally.
+ * This is the defining characteristic of this lock.
  *
- * 普通 Exclusive 获取，以及从 Concurrent 原地升级到 Exclusive 的转换，
- * 会借用 Monitor(lock) 的互斥、等待、唤醒和排序机制参与排他调度。
+ * Ordinary Exclusive acquisition, as well as in-place conversion from Concurrent to Exclusive,
+ * uses the mutual exclusion, waiting, signaling, and ordering mechanisms of Monitor(lock) for exclusive scheduling.
  *
- * 本锁不额外承诺严格 FIFO 公平，也不承诺比 Monitor 更强的调度公平性。
- * 线程实际运行顺序仍会受到操作系统调度、CPU 拓扑、缓存状态、
- * 系统负载以及调用方业务时长影响。
+ * This lock does not additionally guarantee strict FIFO fairness or stronger scheduling fairness than Monitor.
+ * The actual execution order of threads is still affected by operating-system scheduling, CPU topology, cache state,
+ * system load, and the duration of caller business logic.
  *
- * ContextID 用于表达业务上下文身份，可用于同一上下文下避免重复获取 Exclusive。
- * EpochID 用于表达单调推进的生命周期、版本或阶段。
- * 两者都属于锁协议之外的业务标识，其含义、分配、校验和清理由调用方负责。
+ * ContextID ContextID identifies a business context and can be used to avoid repeated Exclusive acquisition within the same context.
+ * EpochID EpochID represents a monotonically advancing lifecycle, version, or phase.
+ * Both are business identifiers outside the lock protocol; their meaning, allocation, validation, and cleanup are the caller's responsibility.
  *
- * Concurrent 不提供递归式嵌套语义。
- * 不应在已持有 Concurrent 时直接请求普通 Exclusive；需要使用原地升级协议。
- * 不应在已持有 Exclusive 时直接请求普通 Concurrent；需要使用原地降级协议。
- * Exclusive 不提供递归计数；如需兼容同一业务上下文的重复进入，可通过 ContextID
- * 在业务层建立协议。
+ * Concurrent Concurrent does not provide recursive nesting semantics.
+ * Do not request an ordinary Exclusive permission while holding Concurrent; use the in-place upgrade protocol instead.
+ * Do not request an ordinary Concurrent permission while holding Exclusive; use the in-place downgrade protocol instead.
+ * Exclusive Exclusive does not provide recursive counting. To support repeated entry within the same business context, use ContextID
+ * to establish a protocol at the business layer.
  *
- * ConcurrentExclusiveLock 是值类型，默认初始化的实例不可用。
- * 必须使用 ConcurrentExclusiveLock.Create() 创建实例。
- * 真实状态存放在内部 CELToken 中，复制 ConcurrentExclusiveLock 值不会复制锁状态。
+ * ConcurrentExclusiveLock ConcurrentExclusiveLock is a value type, and a default-initialized instance is unusable.
+ * Instances must be created with ConcurrentExclusiveLock.Create().
+ * The actual state is stored in the internal CELToken; copying a ConcurrentExclusiveLock value does not copy the lock state.
  *
- * CELToken 的核心状态字段为 128bit：
- * Counter 记录 Concurrent / Exclusive 计数，ContextID 记录业务上下文，
- * EpochID 记录单调推进的生命周期版本。
- * Monitor 直接作用于 CELToken 实例，不额外创建独立同步对象。
+ * CELToken The core state fields of CELToken occupy 128 bits:
+ * Counter Counter records the Concurrent / Exclusive counts, ContextID records the business context,
+ * EpochID and EpochID records the monotonically advancing lifecycle version.
+ * Monitor Monitor operates directly on the CELToken instance; no separate synchronization object is created.
  *
- * 理论边界：
- * 本锁使用 31bit 计数空间记录同一时刻的 Concurrent 持有数量。
- * 该数量不是调用者发起请求的总数量，实际业务中基本不会触达；
- * 此说明仅用于明确设计边界。
+ * Theoretical limit:
+ * The lock uses a 31-bit count space to record the number of Concurrent holders at a given instant.
+ * This is not the total number of requests issued by callers and is effectively unreachable in real workloads;
+ * it is documented only to make the design boundary explicit.
  */
 
 using System;
@@ -56,44 +56,48 @@ namespace IntomicLib
 {
     internal class CELToken
     {
-        public long Counter;  //低32位为并发计数，高32位为排他计数
+        public long Counter;  // The lower 32 bits store the Concurrent count; the upper 32 bits store the Exclusive count.
 
-        public int _ContextID;  //上下文ID
+        public int _ContextID;  // Business context ID.
 
-        public int _EpochID;  //单调推进的生命周期版本ID
+        public int _EpochID;  // Monotonically advancing lifecycle version ID.
     }
 
 
     /// <summary>
-    /// 提供基于 Concurrent / Exclusive 访问权限的高性能非递归同步锁。
+    /// Provides a high-performance, non-recursive synchronization lock based on Concurrent / Exclusive access permissions.
     /// </summary>
     /// <remarks>
-    /// 此锁表达的是访问权限，而不是读写意图。
-    /// Concurrent 表示当前操作可以与其他 Concurrent 操作同时进入；
-    /// Exclusive 表示当前操作必须独占进入，不能与任何其他操作并发。
-    /// 此锁不提供递归式嵌套特权。
+    /// This lock expresses access permissions rather than read/write intent.
+    /// Concurrent Concurrent means that the current operation may enter together with other Concurrent operations;
+    /// Exclusive Exclusive means that the current operation must enter exclusively and cannot run concurrently with any other operation.
+    /// This lock does not provide recursive nesting privileges.
     ///
-    /// 此锁支持抢占式 Exclusive、Concurrent 原地升级为 Exclusive、
-    /// Exclusive 原地降级为 Concurrent，以及状态和竞争度快照观察。
+    /// This lock supports preemptive Exclusive acquisition, in-place upgrade from Concurrent to Exclusive,
+    /// Exclusive in-place downgrade from Exclusive to Concurrent, and observational snapshots of state and contention.
     ///
-    /// Concurrent 普通获取与释放以轻量原子计数为主，不进入 Monitor 排序队列。
-    /// 普通 Exclusive 获取，以及从 Concurrent 原地升级到 Exclusive 的转换，
-    /// 会借用 Monitor 的互斥、等待、唤醒和排序机制参与排他调度。
+    /// Concurrent Ordinary Concurrent acquisition and release primarily use lightweight atomic counting and do not enter the Monitor scheduling queue.
+    /// Ordinary Exclusive acquisition, as well as conversion from Concurrent to Exclusive,
+    /// uses the mutual exclusion, waiting, signaling, and ordering mechanisms of Monitor for exclusive scheduling.
     ///
-    /// 此锁不保证严格 FIFO 顺序，也不承诺比 Monitor 更强的调度公平性。
-    /// 线程实际运行顺序仍会受到操作系统调度、CPU 拓扑、缓存状态、系统负载
-    /// 以及调用方业务时长影响。
+    /// This lock does not guarantee strict FIFO ordering or stronger scheduling fairness than Monitor.
+    /// The actual execution order of threads is still affected by operating-system scheduling, CPU topology, cache state, system load,
+    /// and the duration of caller business logic.
     ///
-    /// 此类型适用于同步、非递归、高并发共享状态场景，
-    /// 尤其适合大量细粒度锁对象并存的服务端场景。
+    /// This type is intended for synchronous, non-recursive, highly concurrent shared-state scenarios,
+    /// especially server-side scenarios with many fine-grained lock instances.
+    /// 
+    /// Exclusive Exclusive permission is thread-affine.
+    /// After acquiring Exclusive, it must be released or downgraded by the same thread that acquired it;
+    /// an execution flow that depends on Exclusive permission must not cross an <c>await</c>.
     ///
-    /// 此类型是值类型，默认初始化的实例不可用。
-    /// 请使用 <see cref="Create"/> 创建实例。
+    /// This type is a value type, and a default-initialized instance is unusable.
+    /// Use <see cref="Create"/> to create an instance.
     /// </remarks>
     public readonly struct ConcurrentExclusiveLock
     {
         /// <summary>
-        /// 锁能支持的最大并发能力
+        /// The maximum number of Concurrent holders supported by a single lock instance.
         /// </summary>
         public const int MaxConcurrent = int.MaxValue;
         internal const long Exclusive_Add = 4294967296;
@@ -117,14 +121,14 @@ namespace IntomicLib
         }
 
         /// <summary>
-        /// 创建一个已正确初始化的 <see cref="ConcurrentExclusiveLock"/> 实例。
+        /// Creates a correctly initialized <see cref="ConcurrentExclusiveLock"/> instance.
         /// </summary>
         /// <remarks>
-        /// <see cref="ConcurrentExclusiveLock"/> 是值类型，默认初始化得到的实例不可用。
-        /// 请始终使用此方法创建新的实例。
+        /// <see cref="ConcurrentExclusiveLock"/> <see cref="ConcurrentExclusiveLock"/> is a value type, and a default-initialized instance is unusable.
+        /// Always use this method to create a new instance.
         ///
-        /// 复制返回的 <see cref="ConcurrentExclusiveLock"/> 值不会复制锁状态；
-        /// 复制后的值仍会引用同一个内部锁状态。
+        /// Copying the returned <see cref="ConcurrentExclusiveLock"/> value does not copy the lock state;
+        /// the copied value still references the same internal lock state.
         /// </remarks>
         public static ConcurrentExclusiveLock Create()
         {
@@ -132,15 +136,15 @@ namespace IntomicLib
         }
 
         /// <summary>
-        /// 锁当前状态的观察快照。
+        /// An observational snapshot of the current lock state.
         /// </summary>
         /// <remarks>
-        /// 该值仅表示读取瞬间观察到的锁状态，不能作为准确的锁状态判断，仅用于诊断、监控。
+        /// This value only represents the state observed at the instant of the read. It must not be used as an authoritative state check and is intended only for diagnostics and monitoring.
         ///
-        /// 当抢占式 Exclusive 请求进入竞争窗口后，即使它仍在等待当前 Concurrent 释放，
-        /// 该值也可能观察为 Exclusive。
-        /// 因此，ObservedState 表示当前锁的访问倾向或转换状态，
-        /// 不表示当前已经有线程正在执行 Exclusive 业务代码。
+        /// After a preemptive Exclusive request enters the contention window, this value may already be observed as Exclusive
+        /// even while the request is still waiting for current Concurrent holders to release.
+        /// Therefore, ObservedState represents the lock's current access tendency or transition state;
+        /// it does not mean that a thread is already executing Exclusive business code.
         /// </remarks>
         public ConcurrentExclusiveLockState ObservedState
         {
@@ -163,13 +167,13 @@ namespace IntomicLib
         }
 
         /// <summary>
-        /// 获取当前锁竞争压力的观察指标。
+        /// Gets an observational indicator of the current contention pressure on the lock.
         /// </summary>
         /// <remarks>
-        /// 该值是读取瞬间观察到的竞争压力快照，仅用于诊断、监控或调度参考。
+        /// This value is a snapshot of contention pressure observed at the instant of the read and is intended only for diagnostics, monitoring, or scheduling reference.
         ///
-        /// 因此，纯 Concurrent 场景下该值为 0；
-        /// 一旦存在 Exclusive 压力，则返回当前观察到的 Concurrent + Exclusive 压力规模。
+        /// Therefore, this value is 0 in a purely Concurrent scenario;
+        /// once Exclusive pressure exists, it returns the currently observed scale of Concurrent + Exclusive pressure.
         /// </remarks>
         public int ObservedContention
         {
@@ -182,17 +186,17 @@ namespace IntomicLib
         }
 
         /// <summary>
-        /// 原子获取或设置与当前锁关联的业务上下文 ID。
+        /// Atomically gets or sets the business context ID associated with the current lock.
         /// </summary>
         /// <remarks>
-        /// 此属性用于记录锁协议之外的附加业务状态，例如由业务层标识当前上下文。
-        /// 从而识别同一上下文并避免重复权限。
+        /// This property records additional business state outside the lock protocol,
+        /// for example, the current business context so that identical contexts can be recognized.
         ///
-        /// 直接设置此属性会无条件覆盖当前 ContextID。
-        /// 如果需要判断是否切换到不同上下文，请使用 <see cref="SwitchContextID(int)"/>。
+        /// Setting this property directly unconditionally overwrites the current ContextID.
+        /// To determine whether a different context was applied, use <see cref="SwitchContextID(int)"/>.
         ///
-        /// 值为 0 表示未设置上下文 ID。
-        /// 非零值的含义、分配、校验及清理均由调用方负责。
+        /// A value of 0 means that no context ID is set.
+        /// The meaning, allocation, validation, and cleanup of nonzero values are the caller's responsibility.
         /// </remarks>
         public int ContextID
         {
@@ -207,18 +211,18 @@ namespace IntomicLib
         }
 
         /// <summary>
-        /// 原子获取或设置与当前锁关联的业务阶段 ID。
+        /// Atomically gets or sets the business phase ID associated with the current lock.
         /// </summary>
         /// <remarks>
-        /// 此属性用于记录锁协议之外的附加业务状态，例如标识排他区域的生命周期阶段、
-        /// 数据版本、处理批次或其他业务阶段。
+        /// This property records additional business state outside the lock protocol, such as the lifecycle phase of an exclusive region,
+        /// a data version, processing batch, or another business phase.
         ///
-        /// 直接设置此属性会无条件覆盖当前 EpochID，
-        /// 不会检查阶段是否向前推进，也不会阻止回退或重置。
-        /// 如果需要保证阶段 ID 只能递增，请使用 <see cref="RaiseEpochID(int)"/>。
+        /// Setting this property directly unconditionally overwrites the current EpochID;
+        /// it does not check whether the phase advances and does not prevent rollback or reset.
+        /// To ensure that the phase ID can only increase, use <see cref="RaiseEpochID(int)"/>.
         ///
-        /// 值为 0 表示未设置阶段 ID。
-        /// 非零值的含义、分配、校验及清理均由调用方负责。
+        /// A value of 0 means that no phase ID is set.
+        /// The meaning, allocation, validation, and cleanup of nonzero values are the caller's responsibility.
         /// </remarks>
         public int EpochID
         {
@@ -233,14 +237,14 @@ namespace IntomicLib
         }
 
         /// <summary>
-        /// 设置新的 ContextID，并返回本次设置是否改变了原值。
-        /// 如果新值与原值相同，则返回 false。
+        /// Sets a new ContextID and returns whether this operation changed the previous value.
+        /// Returns false if the new value is the same as the previous value.
         /// </summary>
         /// <remarks>
-        /// 此方法只切换业务上下文 ID。
+        /// This method only switches the business context ID.
         /// </remarks>
-        /// <param name="newContextID">新的上下文 ID。</param>
-        /// <returns>如果 ContextID 被设置为不同的新值，则返回 true；如果新值与原值相同，则返回 false。</returns>
+        /// <param name="newContextID">The new context ID.</param>
+        /// <returns>True if ContextID was changed to a different value; false if the new value was already current.</returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool SwitchContextID(int newContextID)
         {
@@ -248,14 +252,14 @@ namespace IntomicLib
         }
 
         /// <summary>
-        /// 尝试将 EpochID 推进到新的阶段，并返回本次推进是否成功。
-        /// 如果新值小于或等于当前值，则返回 false。
+        /// Attempts to advance EpochID to a new phase and returns whether the advance succeeded.
+        /// Returns false if the new value is less than or equal to the current value.
         /// </summary>
         /// <remarks>
-        /// 此方法只推进业务阶段 ID。
+        /// This method only advances the business phase ID.
         /// </remarks>
-        /// <param name="newEpochID">新的阶段 ID，必须大于当前 EpochID 才能推进成功。</param>
-        /// <returns>如果 EpochID 成功推进到更大的新值，则返回 true；否则返回 false。</returns>
+        /// <param name="newEpochID">The new phase ID. It must be greater than the current EpochID for the advance to succeed.</param>
+        /// <returns>True if EpochID was successfully advanced to a greater value; otherwise, false.</returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool RaiseEpochID(int newEpochID)
         {
@@ -305,28 +309,29 @@ namespace IntomicLib
         }
 
         /// <summary>
-        /// 等待获得 Concurrent 访问权限。
+        /// Waits to acquire Concurrent access permission.
         /// </summary>
         /// <remarks>
-        /// 此方法会在允许进入 Concurrent 状态时返回。
+        /// This method returns when entry into the Concurrent state is permitted.
         ///
-        /// 获得 Concurrent 后，调用者可以在后续调用 <c>ReleaseConcurrent()</c> 手动释放；
-        /// 如果之后通过其他协议转换了当前持有状态，则应按转换后的状态释放。
+        /// After acquiring Concurrent, the caller must later call <c>ReleaseConcurrent()</c> to release it;
+        /// if another protocol subsequently changes the held state, release according to the resulting state.
         ///
-        /// <paramref name="maxConcurrent"/> 用于限制本次允许进入的最大 Concurrent ID。
-        /// <paramref name="maxConcurrent"/> 不能小于 1。
+        /// <paramref name="maxConcurrent"/> <paramref name="maxConcurrent"/> limits the maximum Concurrent ID that this acquisition may obtain.
+        /// <paramref name="maxConcurrent"/> <paramref name="maxConcurrent"/> must be at least 1.
         /// </remarks>
         /// <param name="maxConcurrent">
-        /// 最大允许的 Concurrent ID。
-        /// 有效返回值范围为 [1, maxConcurrent]。
+        /// The maximum permitted Concurrent ID.
+        /// Valid return values are in the range [1, maxConcurrent].
         /// </param>
         /// <returns>
-        /// 返回本次获得的 Concurrent ID，范围为 [1, maxConcurrent]。
+        /// Returns the Concurrent ID obtained by this successful entry, in the range [1, maxConcurrent].
+        /// IDs obtained by uninterrupted concurrent acquisitions in the same round are distinct; after a release, a later acquisition may reuse a previously returned ID.
         /// </returns>
-        /// <exception cref="ArgumentException"></exception>
+        /// <exception cref="ArgumentException">Thrown when <paramref name="maxConcurrent"/> is less than 1.</exception>
         /// <exception cref="ConcurrentExclusiveLockCapacityExceededException">
-        /// 当运行时同时存在的 Concurrent 数量超过内部限制时抛出。
-        /// 当前实现支持 31-bit 并发计数空间，该限制在实际运行环境中基本不可能触发。
+        /// Thrown when the number of Concurrent holders present at runtime exceeds the internal limit.
+        /// The current implementation supports a 31-bit concurrent count space; this limit is effectively unreachable in normal environments.
         /// </exception>
         public int AcquireConcurrent(int maxConcurrent = MaxConcurrent)
         {
@@ -368,7 +373,7 @@ namespace IntomicLib
             }
         Redo2:
             counter = Interlocked.Add(ref token.Counter, 1);
-            if ((int)counter < 0)  //运行时并发溢出int.MaxValue，基本不可能发生
+            if ((int)counter < 0)  // Runtime Concurrent count overflowed int.MaxValue; effectively impossible in practice.
             {
                 Interlocked.Add(ref token.Counter, -1);
                 throw new ConcurrentExclusiveLockCapacityExceededException();
@@ -390,26 +395,27 @@ namespace IntomicLib
 
 
         /// <summary>
-        /// 尝试获得 Concurrent 访问权限。
+        /// Attempts to acquire Concurrent access permission.
         /// </summary>
         /// <remarks>
-        /// 此方法只尝试一次当前是否可以进入 Concurrent 状态，不会等待锁状态变化。
+        /// This method checks only once whether Concurrent entry is currently possible and does not wait for the lock state to change.
         ///
-        /// 返回值不为 0 表示已获得 Concurrent，调用者可以在后续调用 <c>ReleaseConcurrent()</c> 手动释放；
-        /// 如果之后通过其他协议转换了当前持有状态，则应按转换后的状态释放。
+        /// A nonzero return value means Concurrent was acquired, and the caller must later call <c>ReleaseConcurrent()</c> to release it;
+        /// if another protocol subsequently changes the held state, release according to the resulting state.
         ///
-        /// <paramref name="maxConcurrent"/> 用于限制本次允许进入的最大 Concurrent ID。
-        /// <paramref name="maxConcurrent"/> 不能小于 1。
+        /// <paramref name="maxConcurrent"/> <paramref name="maxConcurrent"/> limits the maximum Concurrent ID that this acquisition may obtain.
+        /// <paramref name="maxConcurrent"/> <paramref name="maxConcurrent"/> must be at least 1.
         /// </remarks>
         /// <param name="maxConcurrent">
-        /// 最大允许的 Concurrent ID。
-        /// 有效成功返回值范围为 [1, maxConcurrent]。
+        /// The maximum permitted Concurrent ID.
+        /// Successful return values are in the range [1, maxConcurrent].
         /// </param>
         /// <returns>
-        /// 返回本次获得的 Concurrent ID，范围为 [1, maxConcurrent]；
-        /// 返回 0 表示未获得 Concurrent。
+        /// Returns the Concurrent ID obtained by this successful entry, in the range [1, maxConcurrent].
+        /// IDs obtained by uninterrupted concurrent acquisitions in the same round are distinct; after a release, a later acquisition may reuse a previously returned ID.
+        /// Returns 0 if Concurrent was not acquired.
         /// </returns>
-        /// <exception cref="ArgumentException"></exception>
+        /// <exception cref="ArgumentException">Thrown when <paramref name="maxConcurrent"/> is less than 1.</exception>
         public int TryAcquireConcurrent(int maxConcurrent = MaxConcurrent)
         {
             long counter;
@@ -425,7 +431,7 @@ namespace IntomicLib
                 return 0;
             }
             counter = Interlocked.Add(ref token.Counter, 1);
-            if ((int)counter < 0)  //运行时并发溢出int.MaxValue，基本不可能发生
+            if ((int)counter < 0)  // Runtime Concurrent count overflowed int.MaxValue; effectively impossible in practice.
             {
                 Interlocked.Add(ref token.Counter, -1);
                 return 0;
@@ -439,34 +445,35 @@ namespace IntomicLib
         }
 
         /// <summary>
-        /// 在指定时间内尝试获得 Concurrent 访问权限。
+        /// Attempts to acquire Concurrent access permission within the specified time.
         /// </summary>
         /// <remarks>
-        /// 此方法会在指定超时时间内等待锁进入可获得 Concurrent 的状态。
+        /// This method waits, within the specified timeout, for the lock to enter a state in which Concurrent can be acquired.
         ///
-        /// 返回值不为 0 表示已获得 Concurrent，调用者可以在后续调用 <c>ReleaseConcurrent()</c> 手动释放；
-        /// 如果之后通过其他协议转换了当前持有状态，则应按转换后的状态释放。
+        /// A nonzero return value means Concurrent was acquired, and the caller must later call <c>ReleaseConcurrent()</c> to release it;
+        /// if another protocol subsequently changes the held state, release according to the resulting state.
         ///
-        /// <paramref name="millisecondsTimeout"/> 为 0 时只尝试一次，不会等待；小于 0 时表示无限等待。
+        /// <paramref name="millisecondsTimeout"/> When <paramref name="millisecondsTimeout"/> is 0, the method tries once without waiting; a negative value means an infinite wait.
         ///
-        /// <paramref name="maxConcurrent"/> 用于限制本次允许进入的最大 Concurrent ID。
-        /// <paramref name="maxConcurrent"/> 不能小于 1。
-        /// 如果 <paramref name="millisecondsTimeout"/> 大于等于 0，则最多等待到超时并返回 0；
-        /// 如果 <paramref name="millisecondsTimeout"/> 小于 0，则会一直等待。
+        /// <paramref name="maxConcurrent"/> <paramref name="maxConcurrent"/> limits the maximum Concurrent ID that this acquisition may obtain.
+        /// <paramref name="maxConcurrent"/> <paramref name="maxConcurrent"/> must be at least 1.
+        /// If <paramref name="millisecondsTimeout"/> is nonnegative, the method waits at most until the timeout and then returns 0;
+        /// if <paramref name="millisecondsTimeout"/> is negative, it waits indefinitely.
         /// </remarks>
         /// <param name="millisecondsTimeout">
-        /// 等待获得 Concurrent 的最长毫秒数。
-        /// 0 表示只尝试一次，不等待；小于 0 表示无限等待。
+        /// The maximum number of milliseconds to wait for Concurrent.
+        /// 0 0 means try once without waiting; a negative value means wait indefinitely.
         /// </param>
         /// <param name="maxConcurrent">
-        /// 最大允许的 Concurrent ID。
-        /// 有效成功返回值范围为 [1, maxConcurrent]。
+        /// The maximum permitted Concurrent ID.
+        /// Successful return values are in the range [1, maxConcurrent].
         /// </param>
         /// <returns>
-        /// 返回本次获得的 Concurrent ID，范围为 [1, maxConcurrent]；
-        /// 返回 0 表示未在指定时间内获得 Concurrent。
+        /// Returns the Concurrent ID obtained by this successful entry, in the range [1, maxConcurrent].
+        /// IDs obtained by uninterrupted concurrent acquisitions in the same round are distinct; after a release, a later acquisition may reuse a previously returned ID.
+        /// Returns 0 if Concurrent was not acquired within the specified time.
         /// </returns>
-        /// <exception cref="ArgumentException"></exception>
+        /// <exception cref="ArgumentException">Thrown when <paramref name="maxConcurrent"/> is less than 1.</exception>
         public int TryAcquireConcurrent(int millisecondsTimeout, int maxConcurrent = MaxConcurrent)
         {
             if (maxConcurrent < 1)
@@ -521,7 +528,7 @@ namespace IntomicLib
                 }
             Redo2:
                 counter = Interlocked.Add(ref token.Counter, 1);
-                if ((int)counter < 0)  //运行时并发溢出int.MaxValue，基本不可能发生
+                if ((int)counter < 0)  // Runtime Concurrent count overflowed int.MaxValue; effectively impossible in practice.
                 {
                     Interlocked.Add(ref token.Counter, -1);
                     return 0;
@@ -549,13 +556,13 @@ namespace IntomicLib
         }
 
         /// <summary>
-        /// 释放当前持有的一次 Concurrent 访问权限。
+        /// Releases one currently held Concurrent access permission.
         /// </summary>
         /// <remarks>
-        /// 此方法必须在当前 scope 已持有 Concurrent 的上下文中调用。
+        /// This method must be called from a context that currently holds Concurrent.
         ///
-        /// 调用后，当前 scope 不再持有该次 Concurrent 访问权限，
-        /// 不应继续执行任何依赖该次 Concurrent 权限的业务代码。
+        /// After this call, the current context no longer holds that Concurrent access permission
+        /// and must not continue executing business code that depends on it.
         /// </remarks>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void ReleaseConcurrent()
@@ -564,17 +571,17 @@ namespace IntomicLib
         }
 
         /// <summary>
-        /// 等待获得 Exclusive 访问权限。
+        /// Waits to acquire Exclusive access permission.
         /// </summary>
         /// <remarks>
-        /// 此方法用于请求抢占式 Exclusive。
+        /// This method requests preemptive Exclusive access.
         ///
-        /// 请求发起后，锁会阻止新的 Concurrent 进入，
-        /// 并等待当前已进入的 Concurrent 释放。
-        /// 当锁进入 Exclusive 状态后，此方法返回。
+        /// After the request is issued, the lock blocks new Concurrent entries
+        /// and waits for current Concurrent holders to release.
+        /// This method returns after the caller has actually acquired Exclusive access permission.
         ///
-        /// 获得 Exclusive 后，调用者可以在后续调用 <c>ReleaseExclusive()</c> 手动释放，
-        /// 或通过 <c>ExclusiveToConcurrent()</c> 降级为 Concurrent 后再按 Concurrent 协议释放；
+        /// After acquiring Exclusive, the caller must later call <c>ReleaseExclusive()</c> to release it,
+        /// or downgrade through <c>ExclusiveToConcurrent()</c> and then release according to the Concurrent protocol.
         /// </remarks>
         public void AcquireExclusive()
         {
@@ -595,7 +602,7 @@ namespace IntomicLib
                         {
                             AdjustWait(ref adjustTurn);
                         }
-                        else   //回退给TryConcurrentToExclusive
+                        else   // Yield to TryConcurrentToExclusive.
                         {
                             Interlocked.Add(ref token.Counter, -Exclusive_Add);
                             Monitor.Exit(token);
@@ -604,7 +611,7 @@ namespace IntomicLib
                         }
                     }
                 }
-                else  //回退给TryConcurrentToExclusive
+                else  // Yield to TryConcurrentToExclusive.
                 {
                     Interlocked.Add(ref token.Counter, -Exclusive_Add);
                     Monitor.Exit(token);
@@ -615,31 +622,34 @@ namespace IntomicLib
         }
 
         /// <summary>
-        /// 尝试获得 Exclusive 访问权限。
+        /// Attempts to acquire Exclusive access permission.
         /// </summary>
         /// <remarks>
-        /// 当 <paramref name="preemptConcurrent"/> 为 true 时，
-        /// 此方法会以抢占式方式请求 Exclusive。
-        /// 如果当前存在 Concurrent，锁会阻止新的 Concurrent 进入，
-        /// 并参与排他竞争；
-        /// 成功的 Exclusive 请求会等待当前已进入的 Concurrent 释放后获得 Exclusive。
+        /// When <paramref name="preemptConcurrent"/> is true,
+        /// this method requests Exclusive preemptively and may wait.
         ///
-        /// 当 <paramref name="preemptConcurrent"/> 为 false 时，
-        /// 此方法不会抢占 Concurrent。
-        /// 只要当前存在 Concurrent 或 Exclusive，就会立即返回 false。
+        /// After entering exclusive contention, the request blocks new Concurrent and ordinary Exclusive entries.
+        /// The method waits for callers that currently hold Concurrent permission to release it,
+        /// then returns true after Exclusive has been acquired; the caller then holds Exclusive permission.
         ///
-        /// 返回 true 表示已获得 Exclusive，调用者可以在后续调用 <c>ReleaseExclusive()</c> 手动释放，
-        /// 或通过 <c>ExclusiveToConcurrent()</c> 降级为 Concurrent 后再按 Concurrent 协议释放；
+        /// If a Concurrent to Exclusive upgrade request appears during contention,
+        /// the current request leaves contention and returns false,
+        /// yielding exclusive scheduling to the upgrade request.
         ///
-        /// 返回 false 表示未获得 Exclusive，调用者不应执行任何依赖 Exclusive 权限的业务代码。
+        /// When <paramref name="preemptConcurrent"/> is false,
+        /// this method does not preempt Concurrent and does not wait for the lock state to change;
+        /// Exclusive can be acquired only when the lock is Idle.
+        ///
+        /// After acquiring Exclusive, the caller must later call <c>ReleaseExclusive()</c> to release it,
+        /// or downgrade through <c>ExclusiveToConcurrent()</c> and then release according to the Concurrent protocol.
         /// </remarks>
         /// <param name="preemptConcurrent">
-        /// true 表示允许抢占 Concurrent；
-        /// false 表示不抢占 Concurrent，只有锁处于 Idle 状态时才可能获得 Exclusive。
+        /// true True requests Exclusive preemptively;
+        /// false false does not preempt Concurrent and attempts to acquire Exclusive only when the lock is Idle.
         /// </param>
         /// <returns>
-        /// true 表示已获得 Exclusive；
-        /// false 表示未获得 Exclusive。
+        /// true True if Exclusive was acquired;
+        /// false false if Exclusive was not acquired.
         /// </returns>
         public bool TryAcquireExclusive(bool preemptConcurrent = true)
         {
@@ -702,27 +712,27 @@ namespace IntomicLib
         }
 
         /// <summary>
-        /// 在指定时间内尝试获得 Exclusive 访问权限。
+        /// Attempts to acquire Exclusive access permission within the specified time.
         /// </summary>
         /// <remarks>
-        /// 此方法会在指定超时时间内尝试获得抢占式 Exclusive。
+        /// This method attempts to acquire preemptive Exclusive within the specified timeout.
         ///
-        /// <paramref name="millisecondsTimeout"/> 为 0 时只尝试一次，不会等待；
-        /// 小于 0 时表示无限等待。
+        /// <paramref name="millisecondsTimeout"/> When <paramref name="millisecondsTimeout"/> is 0, the method tries once without waiting;
+        /// a negative value means an infinite wait.
         ///
-        /// 返回 true 表示已获得 Exclusive，调用者可以在后续调用 <c>ReleaseExclusive()</c> 手动释放，
-        /// 或通过 <c>ExclusiveToConcurrent()</c> 降级为 Concurrent 后再按 Concurrent 协议释放；
+        /// A return value of true means Exclusive was acquired, and the caller must later call <c>ReleaseExclusive()</c> to release it,
+        /// or downgrade through <c>ExclusiveToConcurrent()</c> and then release according to the Concurrent protocol.
         ///
-        /// 返回 false 表示未在指定时间内获得 Exclusive，
-        /// 调用者不应执行任何依赖 Exclusive 权限的业务代码。
+        /// A return value of false means Exclusive was not acquired within the specified time,
+        /// and the caller must not execute business code that depends on Exclusive permission.
         /// </remarks>
         /// <param name="millisecondsTimeout">
-        /// 等待获得 Exclusive 的最长毫秒数。
-        /// 0 表示只尝试一次，不等待；小于 0 表示无限等待。
+        /// The maximum number of milliseconds to wait for Exclusive.
+        /// 0 0 means try once without waiting; a negative value means wait indefinitely.
         /// </param>
         /// <returns>
-        /// true 表示已获得 Exclusive；
-        /// false 表示未在指定时间内获得 Exclusive。
+        /// true True if Exclusive was acquired;
+        /// false false if Exclusive was not acquired within the specified time.
         /// </returns>
         public bool TryAcquireExclusive(int millisecondsTimeout)
         {
@@ -803,20 +813,20 @@ namespace IntomicLib
         }
 
         /// <summary>
-        /// 释放当前持有的 Exclusive 访问权限。
+        /// Releases the currently held Exclusive access permission.
         /// </summary>
         /// <remarks>
-        /// 此方法必须在当前 scope 已持有 Exclusive 的上下文中调用。
+        /// This method must be called from a context that currently holds Exclusive.
         ///
-        /// 调用后，当前 scope 不再持有 Exclusive 访问权限，
-        /// 不应继续执行任何依赖 Exclusive 权限的业务代码。
+        /// After this call, the current context no longer holds Exclusive access permission
+        /// and must not continue executing business code that depends on it.
         ///
-        /// 释放完成后，锁会恢复正常竞争状态，
-        /// 等待中的 Concurrent 或 Exclusive 将按照锁的竞争规则继续尝试进入。
+        /// After release, the lock returns to normal contention,
+        /// and waiting Concurrent or Exclusive requests continue attempting entry according to the lock's contention rules.
         ///
-        /// 如果调用者希望在结束 Exclusive 后继续保持 Concurrent 访问权限，
-        /// 应调用 <c>ExclusiveToConcurrent()</c>，
-        /// 而不是调用此方法。
+        /// To retain Concurrent access after ending Exclusive,
+        /// call <c>ExclusiveToConcurrent()</c>
+        /// instead of this method.
         /// </remarks>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void ReleaseExclusive()
@@ -827,19 +837,23 @@ namespace IntomicLib
         }
 
         /// <summary>
-        /// 将当前持有的 Exclusive 访问权限降级为 Concurrent 访问权限。
+        /// Downgrades the currently held Exclusive access permission to Concurrent access permission.
         /// </summary>
         /// <remarks>
-        /// 此方法必须在当前 scope 已持有 Exclusive 的上下文中调用。
+        /// This method must be called from a context that currently holds Exclusive.
         ///
-        /// 调用后，当前 scope 不再持有 Exclusive 访问权限，
-        /// 不应继续执行任何依赖 Exclusive 权限的业务代码。
+        /// After this call, the current context no longer holds Exclusive access permission
+        /// and must not continue executing business code that depends on it.
         ///
-        /// 当前 scope 会继续持有 Concurrent 访问权限，
-        /// 后续可以调用 <c>ReleaseConcurrent()</c> 手动释放；
-        /// 
-        /// 此方法用于在完成独占修改后，继续保持一个连续的 Concurrent 访问上下文，
-        /// 避免先释放 Exclusive 再重新申请 Concurrent 造成访问窗口。
+        /// The current context instead holds Concurrent access permission
+        /// and must later call <c>ReleaseConcurrent()</c> to release it.
+        ///
+        /// If the current Exclusive permission was acquired through an ordinary Exclusive request,
+        /// the downgrade retains Concurrent continuously, avoiding the access window caused by releasing and reacquiring.
+        ///
+        /// If the current Exclusive permission resulted from an in-place Concurrent upgrade
+        /// and other upgrade requests are still waiting, the downgrade cuts the current access context and reacquires Concurrent
+        /// so that the remaining upgrade requests can continue acquiring Exclusive.
         /// </remarks>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void ExclusiveToConcurrent()
@@ -850,7 +864,7 @@ namespace IntomicLib
             counter = Interlocked.Add(ref token.Counter, -Converge_Add);
             Monitor.Exit(token);
 
-            if (counter >= Exclusive_Add)  //在竞争激烈时，需要切段重新申请
+            if (counter >= Exclusive_Add)  // Under heavy contention, split the segment and reacquire.
             {
                 Interlocked.Add(ref token.Counter, -1);
                 AcquireConcurrent();
@@ -858,26 +872,77 @@ namespace IntomicLib
         }
 
         /// <summary>
-        /// 在持有 Concurrent 权限的情况下，尝试通过 SwitchContextID 将当前权限升级为 Exclusive。
-        /// 当多个 Concurrent 持有者以相同 newContextID 同时调用时，只有成功切换 ContextID 的持有者能够升级。
-        /// 当调用者使用不同 newContextID 时，多个调用者可能分别成功，但成功后的 Exclusive 执行区仍会被隔离排序。
-        /// 升级成功后，当前 scope 持有 Exclusive 权限；升级失败时，当前 scope 持有的 Concurrent 权限会被自动释放。
+        /// Upgrades the currently held Concurrent permission to Exclusive.
+        /// Upgrade requests take priority over ordinary Exclusive requests and execute serially until all have completed.
         /// </summary>
         /// <remarks>
-        /// 此方法必须在当前 scope 已持有 Concurrent 权限的上下文中调用。
+        /// This method must be called from a context that currently holds Concurrent permission.
         ///
-        /// 调用后，锁会阻止新的 Concurrent 进入当前转换窗口，
-        /// 成功升级的调用者会按 Exclusive 语义隔离执行。
-        /// ContextID 的切换是否成功由 <c>SwitchContextID(newContextID)</c> 决定。
+        /// After this call, the lock blocks new Concurrent entries into the current conversion window;
+        /// callers that upgrade successfully execute in isolation under Exclusive semantics.
         ///
-        /// 成功后，调用者可以调用 <c>ReleaseExclusive()</c> 手动释放；
-        /// 失败后，原 Concurrent 权限已经释放，不应再调用 <c>ReleaseConcurrent()</c>。
+        /// After a successful upgrade, call <c>ReleaseExclusive()</c> to release it,
+        /// or downgrade through <c>ExclusiveToConcurrent()</c>
+        /// and then release according to the Concurrent protocol.
+        ///
+        /// Use this method to continue from a completed Concurrent phase into a continuous Exclusive access context,
+        /// avoiding the access window caused by releasing Concurrent and then reacquiring Exclusive.
+        ///
+        /// When multiple Concurrent holders request an upgrade at the same time, their Exclusive regions execute serially.
+        /// Too many upgrade requests may create substantial contention pressure;
+        /// when the business logic can identify which callers actually need to upgrade by context or phase,
+        /// prefer <see cref="TryConcurrentToExclusiveWithSwitchContextID(int)"/>
+        /// or <see cref="TryConcurrentToExclusiveWithRaiseEpochID(int)"/>.
         /// </remarks>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void ConcurrentToExclusive()
+        {
+            int adjustTurn = 0;
+            CELToken token = GetToken();
+            if ((int)Interlocked.Add(ref token.Counter, Converge_Add) != 0)  // Semantically equivalent to directly converting the current Concurrent holder into one of multiple Exclusive signals.
+            {
+                while ((int)Volatile.Read(ref token.Counter) != 0)
+                {
+                    AdjustWait2(ref adjustTurn);
+                }
+            }
+            Monitor.Enter(token);
+        }
+
+        /// <summary>
+        /// While holding Concurrent permission, attempts to upgrade to Exclusive through SwitchContextID.
+        /// Upgraded Exclusive requests block ordinary Exclusive acquisition until all upgrades have completed.
+        /// When multiple Concurrent holders call this method with the same newContextID, only the holder that successfully switches ContextID can upgrade.
+        /// When callers use different newContextID values, multiple callers may succeed, but their successful Exclusive regions are still isolated and ordered.
+        /// On success, the caller holds Exclusive permission; on failure, the previously held Concurrent permission is released automatically.
+        /// </summary>
+        /// <remarks>
+        /// This method must be called from a context that holds Concurrent permission.
+        ///
+        /// After this call, the lock blocks new Concurrent entries into the current conversion window,
+        /// and callers that upgrade successfully execute in isolation under Exclusive semantics.
+        /// ContextID Whether ContextID is switched is determined by <c>SwitchContextID(newContextID)</c>.
+        /// 
+        /// After a successful upgrade, call <c>ReleaseExclusive()</c> to release it,
+        /// or downgrade through <c>ExclusiveToConcurrent()</c>
+        /// and then release according to the Concurrent protocol.
+        /// 
+        /// After failure, the original Concurrent permission has already been released; do not call <c>ReleaseConcurrent()</c> again.
+        /// Exclusive regions produced by multiple Concurrent upgrades remain serialized.
+        /// </remarks>
+        /// <param name="newContextID">
+        /// The new business context ID to attempt to apply.
+        /// </param>
+        /// <returns>
+        /// true True if ContextID was switched and Exclusive has been acquired;
+        /// false false if ContextID did not change and the original Concurrent permission was released automatically.
+        /// </returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool TryConcurrentToExclusiveWithSwitchContextID(int newContextID)
         {
             int adjustTurn = 0;
             CELToken token = GetToken();
-            if ((int)Interlocked.Add(ref token.Counter, Converge_Add) != 0)  //语义相当于在并发内部直接升级为多个排他信号
+            if ((int)Interlocked.Add(ref token.Counter, Converge_Add) != 0)  // Semantically equivalent to directly converting the current Concurrent holder into one of multiple Exclusive signals.
             {
                 while ((int)Volatile.Read(ref token.Counter) != 0)
                 {
@@ -897,28 +962,42 @@ namespace IntomicLib
         }
 
         /// <summary>
-        /// 在持有 Concurrent 权限的情况下，尝试通过 RaiseEpochID 将当前权限升级为 Exclusive。
-        /// 仅当 newEpochID 大于当前 EpochID 时，调用者才可能推进阶段并升级成功。
-        /// 当 newEpochID 小于或等于当前 EpochID 时，升级失败，EpochID 保持不变。
-        /// 多个调用者使用递增的不同 newEpochID 时，多个调用者可能分别成功，但成功后的 Exclusive 执行区仍会被隔离排序。
-        /// 升级成功后，当前 scope 持有 Exclusive 权限；升级失败时，当前 scope 持有的 Concurrent 权限会被自动释放。
+        /// While holding Concurrent permission, attempts to upgrade to Exclusive through RaiseEpochID.
+        /// Upgraded Exclusive requests block ordinary Exclusive acquisition until all upgrades have completed.
+        /// The caller can advance the phase and upgrade successfully only when newEpochID is greater than the current EpochID.
+        /// When newEpochID is less than or equal to the current EpochID, the upgrade fails and EpochID remains unchanged.
+        /// When callers use different increasing newEpochID values, multiple callers may succeed, but their successful Exclusive regions are still isolated and ordered.
+        /// On success, the caller holds Exclusive permission; on failure, the previously held Concurrent permission is released automatically.
         /// </summary>
         /// <remarks>
-        /// 此方法必须在当前 scope 已持有 Concurrent 权限的上下文中调用。
+        /// This method must be called from a context that currently holds Concurrent permission.
         ///
-        /// 此方法适合将 EpochID 用作生命周期、版本号或阶段号的场景。
-        /// EpochID 只允许向更大的值推进，不允许保持不变或回退。
-        /// 调用后，锁会阻止新的 Concurrent 进入当前转换窗口，
-        /// 成功升级的调用者会按 Exclusive 语义隔离执行。
+        /// This method is suitable when EpochID represents a lifecycle, version number, or phase number.
+        /// EpochID EpochID may advance only to a greater value; it cannot remain unchanged or move backward.
+        /// After this call, the lock blocks new Concurrent entries into the current conversion window,
+        /// and callers that upgrade successfully execute in isolation under Exclusive semantics.
+        /// EpochID Whether EpochID advances is determined by <c>RaiseEpochID(newEpochID)</c>.
         ///
-        /// 成功后，调用者可以调用 <c>ReleaseExclusive()</c> 手动释放；
-        /// 失败后，原 Concurrent 权限已经释放，不应再调用 <c>ReleaseConcurrent()</c>。
+        /// After a successful upgrade, call <c>ReleaseExclusive()</c> to release it,
+        /// or downgrade through <c>ExclusiveToConcurrent()</c>
+        /// and then release according to the Concurrent protocol.
+        /// 
+        /// After failure, the original Concurrent permission has already been released; do not call <c>ReleaseConcurrent()</c> again.
+        /// Exclusive regions produced by multiple Concurrent upgrades remain serialized.
         /// </remarks>
+        /// <param name="newEpochID">
+        /// The new phase ID to attempt to advance to.
+        /// </param>
+        /// <returns>
+        /// true True if EpochID was successfully advanced and Exclusive has been acquired;
+        /// false false if EpochID was not advanced and the original Concurrent permission was released automatically.
+        /// </returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool TryConcurrentToExclusiveWithRaiseEpochID(int newEpochID)
         {
             int adjustTurn = 0;
             CELToken token = GetToken();
-            if ((int)Interlocked.Add(ref token.Counter, Converge_Add) != 0)  //语义相当于在并发内部直接升级为多个排他信号
+            if ((int)Interlocked.Add(ref token.Counter, Converge_Add) != 0)  // Semantically equivalent to directly converting the current Concurrent holder into one of multiple Exclusive signals.
             {
                 while ((int)Volatile.Read(ref token.Counter) != 0)
                 {
@@ -938,9 +1017,9 @@ namespace IntomicLib
         }
 
         /// <summary>
-        /// 辅助方法
+        /// Helper method.
         /// </summary>
-        /// <param name="counter"></param>
+        /// <param name="counter">The delta to apply to the internal state counter.</param>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal void _FreeRelease(long counter)
         {
@@ -954,34 +1033,35 @@ namespace IntomicLib
     }
 
     /// <summary>
-    /// ConcurrentExclusiveLock锁状态
+    /// ConcurrentExclusiveLock lock state.
     /// </summary>
     public enum ConcurrentExclusiveLockState : byte
     {
         /// <summary>
-        /// 空闲
+        /// Idle
         /// </summary>
         Idle = 0,
 
         /// <summary>
-        /// 并发中
+        /// Concurrent
         /// </summary>
         Concurrent = 1,
 
         /// <summary>
-        /// 排他中
+        /// Exclusive
         /// </summary>
         Exclusive = 2,
     }
 
     /// <summary>
-    /// ConcurrentExclusiveLock运行时超出最大并发处理能力。
-    /// 一般绝无可能发生。
+    /// Indicates that the runtime number of Concurrent holders exceeded the internal 31-bit count capacity.
+    /// This exception is not normally expected under real-world business conditions.
     /// </summary>
     public class ConcurrentExclusiveLockCapacityExceededException : Exception
     {
         /// <summary>
-        /// 
+        /// Initializes a new
+        /// <see cref="ConcurrentExclusiveLockCapacityExceededException"/> <see cref="ConcurrentExclusiveLockCapacityExceededException"/> instance.
         /// </summary>
         public ConcurrentExclusiveLockCapacityExceededException() : base()
         { }

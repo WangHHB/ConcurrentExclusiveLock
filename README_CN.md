@@ -134,6 +134,7 @@ CEL 支持从当前 Concurrent 上下文直接收敛到 Exclusive，而不需要
 当前提供的业务条件升级方法包括：
 
 ```csharp
+ConcurrentToExclusive();
 TryConcurrentToExclusiveWithSwitchContextID(int newContextID);
 TryConcurrentToExclusiveWithRaiseEpochID(int newEpochID);
 ```
@@ -242,6 +243,7 @@ ExclusiveToConcurrent();
 SwitchContextID(...);
 RaiseEpochID(...);
 
+ConcurrentToExclusive();
 TryConcurrentToExclusiveWithSwitchContextID(...);
 TryConcurrentToExclusiveWithRaiseEpochID(...);
 ```
@@ -348,6 +350,35 @@ public void ModifyState()
 }
 ```
 
+### Concurrent 直接升级
+
+```csharp
+public void ExecuteCommand(PlayerCommand command)
+{
+    using (var scope = new ConcurrentExclusiveLockScope(_locker))
+    {
+        scope.AcquireConcurrent();
+
+        if (!CanPrepareCommand(command))
+        {
+            scope.ReleaseConcurrent();
+            return;
+        }
+
+        PreparedCommand prepared = PrepareCommand(command);
+
+        scope.ConcurrentToExclusive();
+
+        if (CanCommitCommand(prepared))
+        {
+            CommitCommand(prepared);
+        }
+
+        scope.ReleaseExclusive();
+    }
+}
+```
+
 ### Concurrent 检查后升级
 
 ```csharp
@@ -436,8 +467,9 @@ pipeline.DoPipeline(
 | `Exclusive` | 获取一段独立 Exclusive；连续同类段也会释放后重新申请 |
 | `TestExclusive` | 仅在锁处于 Idle 时尝试 Exclusive，不抢占已有 Concurrent |
 | `TryExclusive` | 抢占式尝试 Exclusive，可以阻止新的 Concurrent 进入 |
-| `ConvergeConcurrent` | 延续已有 Concurrent，或将 Exclusive 原地降级为 Concurrent |
-| `TryApplyIDConvergeExclusive` | 尝试应用 ContextID / EpochID，并在成功后收敛到 Exclusive |
+| ConvergeConcurrent | 延续现有 Concurrent 权限，在可能的情况下将 Exclusive 原地降级为 Concurrent，或获取 Concurrent 权限 |
+| ConvergeExclusive | 延续现有 Exclusive 权限，将 Concurrent 原地升级为 Exclusive，或获取 Exclusive 权限 |
+| TryApplyIDConvergeExclusive | 尝试应用 ContextID / EpochID，并在成功后收敛为 Exclusive 权限 |
 
 ### Try Segment 的行为
 
@@ -455,9 +487,11 @@ Try 类型 Segment 没有获得执行条件时：
 
 即使上一段已经持有相同权限，Pipeline 仍会先释放，再重新申请，从而为其他竞争者提供进入机会。
 
-`ConvergeConcurrent` 表示延续或形成连续的 Concurrent 上下文。
+ConvergeConcurrent 表示延续现有的 Concurrent 上下文、尝试通过将 Exclusive 上下文原地降级来建立 Concurrent 上下文，或新获取一个 Concurrent 上下文。
 
-`TryApplyIDConvergeExclusive` 表示在业务 ID 成功应用后，进入或延续 Exclusive 上下文。
+ConvergeExclusive 表示延续现有的 Exclusive 上下文、通过将 Concurrent 上下文原地升级来建立 Exclusive 上下文，或新获取一个 Exclusive 上下文。
+
+TryApplyIDConvergeExclusive 表示在业务 ID 成功应用后，延续现有的 Exclusive 上下文、建立 Exclusive 上下文，或新获取一个 Exclusive 上下文。
 
 ---
 

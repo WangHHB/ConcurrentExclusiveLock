@@ -4,41 +4,39 @@ using System.Threading.Tasks;
 namespace IntomicLib
 {
     /// <summary>
-    /// <see cref="ConcurrentExclusiveLock"/> 的访问权限流水线。
+    /// An access-permission pipeline for <see cref="ConcurrentExclusiveLock"/>.
     /// </summary>
     /// <remarks>
-    /// Pipeline 用一组连续的段描述业务流程，每个段声明自己需要的访问权限。
-    /// 执行过程中会根据上一段成功持有的访问权限，自动完成释放、重新申请或原地转换。
+    /// The Pipeline executes a sequence of synchronous business segments, each of which declares the access permission required for execution.
+    /// During execution, it uses the permission successfully held by the preceding segment
+    /// to automatically release, reacquire, continue, upgrade, or downgrade access.
     ///
-    /// Concurrent 表示一段独立的普通并发权限；连续普通 Concurrent 段会切开并重新申请。
-    /// ConvergeConcurrent 表示延续或形成 Concurrent 上下文；如果上一段是 Exclusive，则原地降级为 Concurrent。
+    /// The specific semantics of each access mode are defined by <see cref="ConcurrentExclusiveAccessMode"/>.
     ///
-    /// TryApplyIDConvergeExclusive 表示先尝试应用业务 ID，并在成功后收敛到 Exclusive：
-    /// 如果上一段是 Concurrent，则根据 ID 类型调用对应的原地升级方法；
-    /// 如果上一段是 Exclusive，则尝试在当前 Exclusive 上下文中应用业务 ID；
-    /// 如果当前没有访问权限，则先尝试应用业务 ID，成功后再获取 Exclusive。
+    /// When a try-type segment does not satisfy its execution condition, that segment is not executed;
+    /// the Pipeline releases any access permission it still holds
+    /// and continues processing subsequent segments from the None state.
     ///
-    /// Exclusive 段表示重新申请一段独立的 Exclusive 权限；
-    /// 如果上一段已经持有 Exclusive，也会先释放再重新申请，让其他竞争者有机会进入。
-    /// 如果希望在已有 Exclusive 上下文中连续执行并受业务 ID 控制，请使用 TryApplyIDConvergeExclusive。
+    /// All Pipeline segments are synchronous, and a segment delegate must not cross an <c>await</c> boundary.
+    /// Exceptions thrown by a segment delegate propagate to the caller, and subsequent segments are not executed;
+    /// when the Pipeline exits, any access permission still held is released.
     ///
-    /// TryConcurrent、TestExclusive、TryExclusive 或 TryApplyIDConvergeExclusive 未获得目标执行条件时，
-    /// 当前段不会执行；流水线不会抛出异常，也不会结束，
-    /// 而是以 None 状态继续处理后续段。
+    /// This type is a value type, and a default-initialized instance is unusable.
+    /// Create an instance by using the constructor that accepts a <see cref="ConcurrentExclusiveLock"/>.
     /// </remarks>
     public readonly struct ConcurrentExclusiveLockPipeline
     {
         /// <summary>
-        /// 当前流水线绑定的锁实例。
+        /// The lock instance bound to the current pipeline.
         /// </summary>
         public readonly ConcurrentExclusiveLock Locker;
 
         /// <summary>
-        /// 创建绑定到指定锁实例的访问权限流水线。
+        /// Creates an access-permission pipeline bound to the specified lock instance.
         /// </summary>
-        /// <param name="locker">流水线要使用的锁实例。</param>
+        /// <param name="locker">The lock instance to be used by the pipeline.</param>
         /// <remarks>
-        /// 同一个 Pipeline 会一直复用该锁实例；多个 Pipeline 也可以绑定到同一个锁实例。
+        /// A Pipeline continues to reuse this lock instance; multiple Pipeline instances may also be bound to the same lock instance.
         /// </remarks>
         public ConcurrentExclusiveLockPipeline(ConcurrentExclusiveLock locker)
         {
@@ -46,15 +44,15 @@ namespace IntomicLib
         }
 
         /// <summary>
-        /// 在线程池中执行一次同步 Pipeline。
+        /// Executes a synchronous Pipeline operation on the thread pool.
         /// </summary>
         /// <remarks>
-        /// 此方法不会让 <see cref="ConcurrentExclusiveLockSegment"/> 变为异步段，也不会在段内部执行异步等待。
-        /// 它只是通过 <see cref="Task.Run(Action)"/> 将同步 <see cref="DoPipeline"/> 调度到线程池执行。
-        /// 如果调用者已经位于工作线程、线程池线程或服务端请求线程中，通常应直接调用 <see cref="DoPipeline"/>。
+        /// This method does not make <see cref="ConcurrentExclusiveLockSegment"/> asynchronous and does not perform asynchronous waits within a segment.
+        /// It only schedules the synchronous <see cref="DoPipeline"/> method to the thread pool through <see cref="Task.Run(Action)"/>.
+        /// If the caller is already running on a worker thread, thread-pool thread, or server request thread, <see cref="DoPipeline"/> should normally be called directly.
         /// </remarks>
-        /// <param name="segments">要顺序执行的 Pipeline 段。</param>
-        /// <returns>表示本次 Pipeline 执行过程的任务。</returns>
+        /// <param name="segments">The Pipeline segments to execute in sequence.</param>
+        /// <returns>A task representing this Pipeline execution.</returns>
         public Task DoPipelineAsync(params ConcurrentExclusiveLockSegment[] segments)
         {
             ConcurrentExclusiveLockPipeline pipeline = this;
@@ -62,30 +60,27 @@ namespace IntomicLib
         }
 
         /// <summary>
-        /// 按顺序执行一组 Pipeline 段。
+        /// Executes a sequence of Pipeline segments in order.
         /// </summary>
         /// <remarks>
-        /// 每个段声明自己需要的访问权限，Pipeline 会根据上一段成功持有的权限自动选择对应处理方式。
+        /// Each segment declares the access permission required for its execution.
+        /// Based on the permission successfully held by the preceding segment, the Pipeline
+        /// automatically handles the permission state according to the definition of <see cref="ConcurrentExclusiveAccessMode"/>.
         ///
-        /// 普通 <see cref="ConcurrentExclusiveAccessMode.Concurrent"/> 和 <see cref="ConcurrentExclusiveAccessMode.Exclusive"/>
-        /// 表示独立权限段；即使上一段持有同类权限，也会切开后重新申请。
+        /// When a try-type segment does not satisfy its execution condition, that segment is not executed;
+        /// the Pipeline releases any access permission it still holds
+        /// and continues processing subsequent segments from the None state.
         ///
-        /// <see cref="ConcurrentExclusiveAccessMode.ConvergeConcurrent"/> 用于延续或形成 Concurrent 上下文；
-        /// 如果上一段是 Exclusive，会原地降级为 Concurrent。
-        ///
-        /// <see cref="ConcurrentExclusiveAccessMode.TryApplyIDConvergeExclusive"/> 的 Try 语义针对业务 ID 更新。
-        /// 只有业务 ID 应用成功，并且最终进入或保持 Exclusive 权限时，当前段才会执行。
-        ///
-        /// Try 类型段未获得目标执行条件时，当前段不会执行，后续段继续处理；
-        /// 此时 Pipeline 会视为当前不再持有任何访问权限，后续段将从 None 状态继续解释。
+        /// Exceptions thrown by a segment delegate propagate to the caller, and subsequent segments are not executed;
+        /// when this method exits, any access permission still held is released.
         /// </remarks>
-        /// <param name="segments">要顺序执行的 Pipeline 段。</param>
+        /// <param name="segments">The Pipeline segments to execute in sequence.</param>
         public void DoPipeline(params ConcurrentExclusiveLockSegment[] segments)
         {
             using (ConcurrentExclusiveLockScope scope = new ConcurrentExclusiveLockScope(Locker))
             {
                 bool isSuccess;
-                ConcurrentExclusiveAccessMode lastSuccessAccess = ConcurrentExclusiveAccessMode.None;  //lastSuccessAccess只能是None, Concurrent，Exclusive
+                ConcurrentExclusiveAccessMode lastSuccessAccess = ConcurrentExclusiveAccessMode.None;  // lastSuccessAccess can only be None, Concurrent, or Exclusive
                 foreach (var segment in segments)
                 {
                     switch (segment.Access)
@@ -255,6 +250,24 @@ namespace IntomicLib
                                     break;
                             }
                             break;
+                        case ConcurrentExclusiveAccessMode.ConvergeExclusive:
+                            switch (lastSuccessAccess)
+                            {
+                                case ConcurrentExclusiveAccessMode.Concurrent:
+                                    scope.ConcurrentToExclusive();
+                                    lastSuccessAccess = ConcurrentExclusiveAccessMode.Exclusive;
+                                    segment.Segment();
+                                    break;
+                                case ConcurrentExclusiveAccessMode.Exclusive:
+                                    segment.Segment();
+                                    break;
+                                default:
+                                    scope.AcquireExclusive();
+                                    lastSuccessAccess = ConcurrentExclusiveAccessMode.Exclusive;
+                                    segment.Segment();
+                                    break;
+                            }
+                            break;
                         case ConcurrentExclusiveAccessMode.TryApplyIDConvergeExclusive:
                             switch (lastSuccessAccess)
                             {
@@ -293,7 +306,7 @@ namespace IntomicLib
                                     break;
                             }
                             break;
-                        default:  //全部当ConcurrentExclusiveAccess.None处理
+                        default:  // Treat all other values as ConcurrentExclusiveAccessMode.None
                             switch (lastSuccessAccess)
                             {
                                 case ConcurrentExclusiveAccessMode.Concurrent:
@@ -318,150 +331,171 @@ namespace IntomicLib
     }
 
     /// <summary>
-    /// Pipeline 段声明的访问权限模式。
+    /// The access-permission mode declared by a Pipeline segment.
     /// </summary>
     /// <remarks>
-    /// 该枚举只描述当前段希望以哪种访问权限执行。
+    /// Each enum value defines the access permission required by the current segment
+    /// and how it is handled relative to the state successfully held by the preceding segment.
     /// </remarks>
     public enum ConcurrentExclusiveAccessMode : byte
     {
         /// <summary>
-        /// 无访问权限。
+        /// No access permission.
         /// </summary>
         /// <remarks>
-        /// 执行当前段前会释放上一段仍然持有的权限，当前段在无锁状态下运行。
+        /// Before the current segment runs, any permission still held by the preceding segment is released, and the current segment runs without access permission.
         /// </remarks>
         None = 0,
 
         /// <summary>
-        /// 获取一段独立的 Concurrent 权限。
+        /// Acquires an independent Concurrent permission segment.
         /// </summary>
         /// <remarks>
-        /// 如果上一段已经持有 Concurrent，也会先释放再重新申请。
-        /// 如果希望延续当前 Concurrent 上下文，请使用 <see cref="ConvergeConcurrent"/>。
+        /// If the preceding segment already holds Concurrent permission, it is still released and reacquired.
+        /// To continue the current Concurrent context, use <see cref="ConvergeConcurrent"/>.
         /// </remarks>
         Concurrent = 1,
 
         /// <summary>
-        /// 尝试获取一段独立的 Concurrent 权限。
+        /// Attempts to acquire an independent Concurrent permission segment.
         /// </summary>
         /// <remarks>
-        /// 如果未获得 Concurrent，当前段不会执行，并以 None 状态继续后续流水线。
-        /// 如果上一段仍持有权限，会先释放上一段权限再尝试获取。
+        /// If Concurrent permission is not acquired, the current segment is not executed and the remaining pipeline continues from the None state.
+        /// If the preceding segment still holds permission, that permission is released before acquisition is attempted.
         /// </remarks>
         TryConcurrent = 2,
 
         /// <summary>
-        /// 获取一段独立的 Exclusive 权限。
+        /// Acquires an independent Exclusive permission segment.
         /// </summary>
         /// <remarks>
-        /// Exclusive 表示一段独立的排他权限。
-        /// 如果上一段已经持有 Exclusive，仍会先释放再重新申请。
-        /// 如果希望在已有 Exclusive 上下文中连续执行并受业务 ID 控制，请使用 <see cref="TryApplyIDConvergeExclusive"/>。
+        /// Exclusive represents an independent exclusive-permission segment.
+        /// If the preceding segment already holds Exclusive permission, it is still released and reacquired.
+        /// To continue an existing Exclusive context, use <see cref="ConvergeExclusive"/>;
+        /// to additionally condition execution of the current segment on a business ID, use <see cref="TryApplyIDConvergeExclusive"/>.
         /// </remarks>
         Exclusive = 3,
 
         /// <summary>
-        /// 仅在锁处于 Idle 时尝试获取 Exclusive 权限。
+        /// Attempts to acquire Exclusive permission only while the lock is Idle.
         /// </summary>
         /// <remarks>
-        /// 此模式不抢占已有 Concurrent。
-        /// 如果当前存在 Concurrent 或 Exclusive，当前段不会执行，并以 None 状态继续后续流水线。
-        /// 如果上一段仍持有权限，会先释放上一段权限再尝试获取。
+        /// This mode does not preempt Concurrent access and does not wait for the lock state to change.
+        /// If the preceding segment still holds permission, that permission is released before acquisition is attempted.
+        /// The current segment is executed only when the lock is Idle and exclusive scheduling can be entered immediately;
+        /// otherwise, the current segment is not executed and the remaining pipeline continues from the None state.
         /// </remarks>
         TestExclusive = 4,
 
         /// <summary>
-        /// 抢占式尝试获取 Exclusive 权限。
+        /// Attempts to acquire Exclusive permission preemptively.
         /// </summary>
         /// <remarks>
-        /// 此模式允许阻止新的 Concurrent 进入，并尝试获得 Exclusive。
-        /// 如果未获得 Exclusive，当前段不会执行，并以 None 状态继续后续流水线。
-        /// 如果上一段仍持有权限，会先释放上一段权限再尝试获取。
+        /// This mode requests Exclusive permission preemptively and may wait.
+        /// If the preceding segment still holds permission, that permission is released before acquisition is attempted.
+        /// If a Concurrent-to-Exclusive upgrade request appears during contention, the current request may yield and fail.
+        /// If Exclusive permission is not acquired, the current segment is not executed and the remaining pipeline continues from the None state.
         /// </remarks>
         TryExclusive = 5,
 
         /// <summary>
-        /// 延续或获取 Concurrent 权限。
+        /// Continues, downgrades to, or acquires Concurrent permission.
         /// </summary>
         /// <remarks>
-        /// 如果上一段已经持有 Concurrent，则延续当前 Concurrent 上下文并直接执行当前段。
-        /// 如果上一段持有 Exclusive，则调用 ExclusiveToConcurrent() 原地降级后执行当前段。
-        /// 如果当前没有访问权限，则重新申请普通 Concurrent 权限。
+        /// If the preceding segment already holds Concurrent permission, the current Concurrent context is continued and the current segment executes directly.
+        /// If the preceding segment holds Exclusive permission, <c>ExclusiveToConcurrent()</c> is called to downgrade before executing the current segment.
+        /// Under upgrade contention, the downgrade may cut the current access context and reacquire Concurrent permission.
+        /// If no access permission is currently held, ordinary Concurrent permission is acquired.
         /// </remarks>
         ConvergeConcurrent = 6,
 
         /// <summary>
-        /// 尝试应用业务 ID，并在成功后收敛到 Exclusive 权限。
+        /// Continues, upgrades to, or acquires Exclusive permission.
         /// </summary>
         /// <remarks>
-        /// 此模式的 Try 语义针对业务 ID 更新，而不是针对 Exclusive 获取。
+        /// If the preceding segment holds Concurrent permission, <c>ConcurrentToExclusive()</c> is called to upgrade in place before executing the current segment.
+        /// If the preceding segment already holds Exclusive permission, the current Exclusive context is continued and the current segment executes directly.
+        /// If no access permission is currently held, ordinary Exclusive permission is acquired.
         ///
-        /// 如果当前持有 Concurrent，则根据段声明的 IDType 执行原地升级：
-        /// 使用 ContextID 时调用 TryConcurrentToExclusiveWithSwitchContextID(contextID)；
-        /// 使用 EpochID 时调用 TryConcurrentToExclusiveWithRaiseEpochID(epochID)。
-        ///
-        /// 如果当前已经持有 Exclusive，则尝试应用当前段声明的业务 ID：
-        /// 使用 ContextID 时调用 SwitchContextID(contextID)；
-        /// 使用 EpochID 时调用 RaiseEpochID(epochID)。
-        ///
-        /// 如果当前没有访问权限，则先尝试应用当前段声明的业务 ID；
-        /// ID 应用成功后，会等待并获取 Exclusive 权限。
-        ///
-        /// 只有业务 ID 应用成功，并且最终进入或保持 Exclusive 权限时，当前段才会执行。
-        /// 如果业务 ID 应用失败，当前段不会执行；流水线会释放当前仍持有的权限，
-        /// 并以 None 状态继续后续流水线。
+        /// When multiple Concurrent holders request upgrades simultaneously, their upgraded Exclusive sections execute serially in sequence.
+        /// Too many upgrade requests may create significant contention;
+        /// when the business can use ContextID or EpochID to select which callers actually need to upgrade,
+        /// consider using <see cref="TryApplyIDConvergeExclusive"/>.
         /// </remarks>
-        TryApplyIDConvergeExclusive = 7,
+        ConvergeExclusive = 7,
+
+        /// <summary>
+        /// Continues, upgrades to, or acquires Exclusive permission, conditioned on the result of applying a business ID.
+        /// </summary>
+        /// <remarks>
+        /// The Try semantics of this mode apply to the result of applying the business ID; they do not imply that no waiting occurs.
+        ///
+        /// When ContextID is used, success means switching to a different business context;
+        /// when EpochID is used, success means advancing to a greater business stage.
+        ///
+        /// If the business ID is applied successfully, the current segment executes with Exclusive permission.
+        /// If the business ID is not applied, the current segment is not executed;
+        /// the Pipeline releases any access permission it still holds
+        /// and continues processing subsequent segments from the None state.
+        ///
+        /// When the preceding segment holds Concurrent permission, it attempts to upgrade to Exclusive subject to the business ID;
+        /// when the preceding segment already holds Exclusive permission, the business ID is applied within the current Exclusive context;
+        /// when the preceding segment holds no access permission, Exclusive permission is acquired after the business ID is applied successfully.
+        /// </remarks>
+        TryApplyIDConvergeExclusive = 8,
     }
 
 
     /// <summary>
-    /// Pipeline 中的一个业务段。
+    /// A business segment in a Pipeline.
     /// </summary>
     /// <remarks>
-    /// 每个段声明运行该段需要的访问权限，并保存要执行的同步业务代码。
+    /// Each segment declares the access permission required to run it and stores the synchronous business code to execute.
+    /// This type is a value type. A default-initialized instance cannot be executed; create business segments through the corresponding static factory methods.
     /// </remarks>
     public readonly struct ConcurrentExclusiveLockSegment
     {
         /// <summary>
-        /// 表示 <see cref="ContextOrEpochID"/> 的业务 ID 类型。
+        /// Specifies the business ID type represented by <see cref="ContextOrEpochID"/>.
         /// </summary>
         public enum IDType : byte
         {
             /// <summary>
-            /// 使用 ContextID 切换业务上下文。
+            /// Uses ContextID to switch the business context.
             /// </summary>
             ContextID = 0,
 
             /// <summary>
-            /// 使用 EpochID 单调推进业务阶段。
+            /// Uses EpochID to advance the business stage monotonically.
             /// </summary>
             EpochID = 1,
         }
 
         /// <summary>
-        /// 当前段要执行的同步业务代码。
+        /// The synchronous business code to be executed by the current segment.
         /// </summary>
         public readonly Action Segment;
 
         /// <summary>
-        /// 当前段要应用的业务上下文 ID 或业务阶段 ID。
+        /// The business-context ID or business-stage ID to be applied by the current segment.
         /// </summary>
         /// <remarks>
-        /// 该值只对 <see cref="ConcurrentExclusiveAccessMode.TryApplyIDConvergeExclusive"/> 有意义。
-        /// 当 <see cref="IDKind"/> 为 <see cref="IDType.ContextID"/> 时表示 ContextID；
-        /// 当 <see cref="IDKind"/> 为 <see cref="IDType.EpochID"/> 时表示 EpochID。
+        /// This value is meaningful only for <see cref="ConcurrentExclusiveAccessMode.TryApplyIDConvergeExclusive"/>.
+        /// When <see cref="IDKind"/> is <see cref="IDType.ContextID"/>, this value represents a ContextID;
+        /// when <see cref="IDKind"/> is <see cref="IDType.EpochID"/>, it represents an EpochID.
         /// </remarks>
         public readonly int ContextOrEpochID;
 
         /// <summary>
-        /// 表示 <see cref="ContextOrEpochID"/> 是 ContextID 还是 EpochID。
+        /// Specifies whether <see cref="ContextOrEpochID"/> is a ContextID or an EpochID.
         /// </summary>
+        /// <remarks>
+        /// This value is meaningful only for <see cref="ConcurrentExclusiveAccessMode.TryApplyIDConvergeExclusive"/>.
+        /// </remarks>
         public readonly IDType IDKind;
 
         /// <summary>
-        /// 当前段声明的访问权限模式。
+        /// The access-permission mode declared by the current segment.
         /// </summary>
         public readonly ConcurrentExclusiveAccessMode Access;
 
@@ -476,13 +510,19 @@ namespace IntomicLib
         }
 
         /// <summary>
-        /// 创建一个无访问权限的业务段。
+        /// Creates a business segment that requires no access permission.
         /// </summary>
-        /// <param name="segment">在无锁状态下执行的业务代码。</param>
+        /// <param name="segment">The business code to execute without lock access.</param>
         public static ConcurrentExclusiveLockSegment None(Action segment)
         {
             return new ConcurrentExclusiveLockSegment(ConcurrentExclusiveAccessMode.None, segment);
         }
+        /// <summary>
+        /// Disabled overload used to reject asynchronous pipeline segments at compile time.
+        /// </summary>
+        /// <param name="segment"></param>
+        /// <returns></returns>
+        /// <exception cref="NotSupportedException"></exception>
         [Obsolete("Pipeline segments must be synchronous. Async segments are not supported.", error: true)]
         public static ConcurrentExclusiveLockSegment None(Func<Task> segment)
         {
@@ -490,13 +530,19 @@ namespace IntomicLib
         }
 
         /// <summary>
-        /// 创建一个获取独立 Concurrent 权限的业务段。
+        /// Creates a business segment that acquires independent Concurrent permission.
         /// </summary>
-        /// <param name="segment">在成功持有 Concurrent 权限时执行的业务代码。</param>
+        /// <param name="segment">The business code to execute while Concurrent permission is held successfully.</param>
         public static ConcurrentExclusiveLockSegment Concurrent(Action segment)
         {
             return new ConcurrentExclusiveLockSegment(ConcurrentExclusiveAccessMode.Concurrent, segment);
         }
+        /// <summary>
+        /// Disabled overload used to reject asynchronous pipeline segments at compile time.
+        /// </summary>
+        /// <param name="segment"></param>
+        /// <returns></returns>
+        /// <exception cref="NotSupportedException"></exception>
         [Obsolete("Pipeline segments must be synchronous. Async segments are not supported.", error: true)]
         public static ConcurrentExclusiveLockSegment Concurrent(Func<Task> segment)
         {
@@ -504,13 +550,19 @@ namespace IntomicLib
         }
 
         /// <summary>
-        /// 创建一个获取独立 Exclusive 权限的业务段。
+        /// Creates a business segment that acquires independent Exclusive permission.
         /// </summary>
-        /// <param name="segment">在成功持有 Exclusive 权限时执行的业务代码。</param>
+        /// <param name="segment">The business code to execute while Exclusive permission is held successfully.</param>
         public static ConcurrentExclusiveLockSegment Exclusive(Action segment)
         {
             return new ConcurrentExclusiveLockSegment(ConcurrentExclusiveAccessMode.Exclusive, segment);
         }
+        /// <summary>
+        /// Disabled overload used to reject asynchronous pipeline segments at compile time.
+        /// </summary>
+        /// <param name="segment"></param>
+        /// <returns></returns>
+        /// <exception cref="NotSupportedException"></exception>
         [Obsolete("Pipeline segments must be synchronous. Async segments are not supported.", error: true)]
         public static ConcurrentExclusiveLockSegment Exclusive(Func<Task> segment)
         {
@@ -518,13 +570,19 @@ namespace IntomicLib
         }
 
         /// <summary>
-        /// 创建一个尝试获取独立 Concurrent 权限的业务段。
+        /// Creates a business segment that attempts to acquire independent Concurrent permission.
         /// </summary>
-        /// <param name="segment">在成功持有 Concurrent 权限时执行的业务代码。</param>
+        /// <param name="segment">The business code to execute while Concurrent permission is held successfully.</param>
         public static ConcurrentExclusiveLockSegment TryConcurrent(Action segment)
         {
             return new ConcurrentExclusiveLockSegment(ConcurrentExclusiveAccessMode.TryConcurrent, segment);
         }
+        /// <summary>
+        /// Disabled overload used to reject asynchronous pipeline segments at compile time.
+        /// </summary>
+        /// <param name="segment"></param>
+        /// <returns></returns>
+        /// <exception cref="NotSupportedException"></exception>
         [Obsolete("Pipeline segments must be synchronous. Async segments are not supported.", error: true)]
         public static ConcurrentExclusiveLockSegment TryConcurrent(Func<Task> segment)
         {
@@ -532,13 +590,19 @@ namespace IntomicLib
         }
 
         /// <summary>
-        /// 创建一个仅在 Idle 状态下尝试获取 Exclusive 权限的业务段。
+        /// Creates a business segment that attempts to acquire Exclusive permission only while the lock is Idle.
         /// </summary>
-        /// <param name="segment">在成功持有 Exclusive 权限时执行的业务代码。</param>
+        /// <param name="segment">The business code to execute while Exclusive permission is held successfully.</param>
         public static ConcurrentExclusiveLockSegment TestExclusive(Action segment)
         {
             return new ConcurrentExclusiveLockSegment(ConcurrentExclusiveAccessMode.TestExclusive, segment);
         }
+        /// <summary>
+        /// Disabled overload used to reject asynchronous pipeline segments at compile time.
+        /// </summary>
+        /// <param name="segment"></param>
+        /// <returns></returns>
+        /// <exception cref="NotSupportedException"></exception>
         [Obsolete("Pipeline segments must be synchronous. Async segments are not supported.", error: true)]
         public static ConcurrentExclusiveLockSegment TestExclusive(Func<Task> segment)
         {
@@ -546,13 +610,19 @@ namespace IntomicLib
         }
 
         /// <summary>
-        /// 创建一个抢占式尝试获取 Exclusive 权限的业务段。
+        /// Creates a business segment that attempts to acquire Exclusive permission preemptively.
         /// </summary>
-        /// <param name="segment">在成功持有 Exclusive 权限时执行的业务代码。</param>
+        /// <param name="segment">The business code to execute while Exclusive permission is held successfully.</param>
         public static ConcurrentExclusiveLockSegment TryExclusive(Action segment)
         {
             return new ConcurrentExclusiveLockSegment(ConcurrentExclusiveAccessMode.TryExclusive, segment);
         }
+        /// <summary>
+        /// Disabled overload used to reject asynchronous pipeline segments at compile time.
+        /// </summary>
+        /// <param name="segment"></param>
+        /// <returns></returns>
+        /// <exception cref="NotSupportedException"></exception>
         [Obsolete("Pipeline segments must be synchronous. Async segments are not supported.", error: true)]
         public static ConcurrentExclusiveLockSegment TryExclusive(Func<Task> segment)
         {
@@ -560,13 +630,19 @@ namespace IntomicLib
         }
 
         /// <summary>
-        /// 创建一个延续或获取 Concurrent 权限的业务段。
+        /// Creates a business segment that continues, downgrades to, or acquires Concurrent permission.
         /// </summary>
-        /// <param name="segment">在成功持有 Concurrent 权限时执行的业务代码。</param>
+        /// <param name="segment">The business code to execute while Concurrent permission is held successfully.</param>
         public static ConcurrentExclusiveLockSegment ConvergeConcurrent(Action segment)
         {
             return new ConcurrentExclusiveLockSegment(ConcurrentExclusiveAccessMode.ConvergeConcurrent, segment);
         }
+        /// <summary>
+        /// Disabled overload used to reject asynchronous pipeline segments at compile time.
+        /// </summary>
+        /// <param name="segment"></param>
+        /// <returns></returns>
+        /// <exception cref="NotSupportedException"></exception>
         [Obsolete("Pipeline segments must be synchronous. Async segments are not supported.", error: true)]
         public static ConcurrentExclusiveLockSegment ConvergeConcurrent(Func<Task> segment)
         {
@@ -574,15 +650,43 @@ namespace IntomicLib
         }
 
         /// <summary>
-        /// 创建一个尝试应用业务 ID，并在成功后收敛到 Exclusive 权限的业务段。
+        /// Creates a business segment that continues, upgrades to, or acquires Exclusive permission.
         /// </summary>
-        /// <param name="segment">在成功持有 Exclusive 权限时执行的业务代码。</param>
-        /// <param name="contextOrEpochID">要切换到的业务上下文 ID，或要推进到的业务阶段 ID。</param>
-        /// <param name="idType">表示 <paramref name="contextOrEpochID"/> 的具体业务 ID 类型。</param>
+        /// <param name="segment">The business code to execute while Exclusive permission is held successfully.</param>
+        public static ConcurrentExclusiveLockSegment ConvergeExclusive(Action segment)
+        {
+            return new ConcurrentExclusiveLockSegment(ConcurrentExclusiveAccessMode.ConvergeExclusive, segment);
+        }
+        /// <summary>
+        /// Disabled overload used to reject asynchronous pipeline segments at compile time.
+        /// </summary>
+        /// <param name="segment"></param>
+        /// <returns></returns>
+        /// <exception cref="NotSupportedException"></exception>
+        [Obsolete("Pipeline segments must be synchronous. Async segments are not supported.", error: true)]
+        public static ConcurrentExclusiveLockSegment ConvergeExclusive(Func<Task> segment)
+        {
+            throw new NotSupportedException();
+        }
+
+        /// <summary>
+        /// Creates a business segment that converges to Exclusive permission, conditioned on the result of applying a business ID.
+        /// </summary>
+        /// <param name="segment">The synchronous business code to execute when the business ID is applied successfully and Exclusive permission is held.</param>
+        /// <param name="contextOrEpochID">The business-context ID to switch to, or the business-stage ID to advance to.</param>
+        /// <param name="idType">Specifies the business ID type represented by <paramref name="contextOrEpochID"/>.</param>
         public static ConcurrentExclusiveLockSegment TryApplyIDConvergeExclusive(Action segment, int contextOrEpochID, IDType idType)
         {
             return new ConcurrentExclusiveLockSegment(ConcurrentExclusiveAccessMode.TryApplyIDConvergeExclusive, segment, contextOrEpochID, idType);
         }
+        /// <summary>
+        /// Disabled overload used to reject asynchronous pipeline segments at compile time.
+        /// </summary>
+        /// <param name="segment"></param>
+        /// <param name="contextOrEpochID"></param>
+        /// <param name="idType"></param>
+        /// <returns></returns>
+        /// <exception cref="NotSupportedException"></exception>
         [Obsolete("Pipeline segments must be synchronous. Async segments are not supported.", error: true)]
         public static ConcurrentExclusiveLockSegment TryApplyIDConvergeExclusive(Func<Task> segment, int contextOrEpochID, IDType idType)
         {
