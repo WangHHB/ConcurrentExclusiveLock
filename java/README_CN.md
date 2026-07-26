@@ -4,6 +4,27 @@
 
 Java 版保留相同的 Concurrent/Exclusive 访问模型，并针对 Java 内存模型和标准同步机制调整具体实现。
 
+
+## 安装
+
+### Maven
+
+```xml
+<dependency>
+    <groupId>io.github.wanghhb</groupId>
+    <artifactId>concurrent-exclusive-lock</artifactId>
+    <version>1.1.1</version>
+</dependency>
+```
+
+### Gradle
+
+```gradle
+implementation 'io.github.wanghhb:concurrent-exclusive-lock:1.1.1'
+```
+
+[Maven Central 页面](https://central.sonatype.com/artifact/io.github.wanghhb/concurrent-exclusive-lock)
+
 目录结构对应 C# 版本：
 
 ```text
@@ -30,7 +51,7 @@ mvn clean package
 生成：
 
 ```text
-ConcurrentExclusiveLock\target\concurrent-exclusive-lock-1.0.0-SNAPSHOT.jar
+ConcurrentExclusiveLock\target\concurrent-exclusive-lock-1.1.1.jar
 TestAndBenchmark\target\TestAndBenchmark.jar
 ```
 

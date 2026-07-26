@@ -4,6 +4,27 @@ This Java implementation is a port based on the original C# implementation of Co
 
 The Java port keeps the same overall Concurrent/Exclusive access model while adapting the implementation to the Java memory model and standard synchronization primitives.
 
+
+## Installation
+
+### Maven
+
+```xml
+<dependency>
+    <groupId>io.github.wanghhb</groupId>
+    <artifactId>concurrent-exclusive-lock</artifactId>
+    <version>1.1.1</version>
+</dependency>
+```
+
+### Gradle
+
+```gradle
+implementation 'io.github.wanghhb:concurrent-exclusive-lock:1.1.1'
+```
+
+[Maven Central](https://central.sonatype.com/artifact/io.github.wanghhb/concurrent-exclusive-lock)
+
 The directory layout mirrors the C# implementation:
 
 ```text
@@ -31,7 +52,7 @@ mvn clean package
 Generated files:
 
 ```text
-ConcurrentExclusiveLock\target\concurrent-exclusive-lock-1.0.0-SNAPSHOT.jar
+ConcurrentExclusiveLock\target\concurrent-exclusive-lock-1.1.1.jar
 TestAndBenchmark\target\TestAndBenchmark.jar
 ```
 

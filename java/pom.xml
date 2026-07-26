@@ -1,66 +1,109 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
-         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
-    <modelVersion>4.0.0</modelVersion>
+		 xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+		 xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
 
-    <groupId>io.github.wanghhb</groupId>
-    <artifactId>concurrent-exclusive-lock-java</artifactId>
-    <version>1.0.0-SNAPSHOT</version>
-    <packaging>pom</packaging>
+	<modelVersion>4.0.0</modelVersion>
 
-    <name>ConcurrentExclusiveLock Java</name>
-    <description>Official Java implementation of ConcurrentExclusiveLock.</description>
-    <url>https://github.com/WangHHB/ConcurrentExclusiveLock</url>
+	<groupId>io.github.wanghhb</groupId>
+	<artifactId>concurrent-exclusive-lock-java</artifactId>
+	<version>1.1.1</version>
+	<packaging>pom</packaging>
 
-    <modules>
-        <module>ConcurrentExclusiveLock</module>
-        <module>TestAndBenchmark</module>
-    </modules>
+	<name>ConcurrentExclusiveLock Java</name>
+	<description>Official Java implementation of ConcurrentExclusiveLock.</description>
+	<url>https://github.com/WangHHB/ConcurrentExclusiveLock</url>
 
-    <properties>
-        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <maven.compiler.release>17</maven.compiler.release>
-    </properties>
+	<modules>
+		<module>ConcurrentExclusiveLock</module>
+		<module>TestAndBenchmark</module>
+	</modules>
 
-    <licenses>
-        <license>
-            <name>MIT License</name>
-            <url>https://opensource.org/license/mit</url>
-            <distribution>repo</distribution>
-        </license>
-        <license>
-            <name>Apache License, Version 2.0</name>
-            <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
-            <distribution>repo</distribution>
-        </license>
-    </licenses>
+	<properties>
+		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+		<maven.compiler.release>17</maven.compiler.release>
+	</properties>
 
-    <developers>
-        <developer>
-            <name>YiBo Wang</name>
-        </developer>
-    </developers>
+	<licenses>
+		<license>
+			<name>MIT License</name>
+			<url>https://opensource.org/license/mit</url>
+			<distribution>repo</distribution>
+		</license>
+		<license>
+			<name>Apache License, Version 2.0</name>
+			<url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+			<distribution>repo</distribution>
+		</license>
+	</licenses>
 
-    <scm>
-        <connection>scm:git:https://github.com/WangHHB/ConcurrentExclusiveLock.git</connection>
-        <developerConnection>scm:git:ssh://git@github.com/WangHHB/ConcurrentExclusiveLock.git</developerConnection>
-        <url>https://github.com/WangHHB/ConcurrentExclusiveLock</url>
-    </scm>
+	<developers>
+		<developer>
+			<name>YiBo Wang</name>
+		</developer>
+	</developers>
 
-    <build>
-        <pluginManagement>
-            <plugins>
-                <plugin>
-                    <groupId>org.apache.maven.plugins</groupId>
-                    <artifactId>maven-compiler-plugin</artifactId>
-                    <version>3.13.0</version>
-                    <configuration>
-                        <release>${maven.compiler.release}</release>
-                        <encoding>${project.build.sourceEncoding}</encoding>
-                    </configuration>
-                </plugin>
-            </plugins>
-        </pluginManagement>
-    </build>
+	<scm>
+		<connection>scm:git:https://github.com/WangHHB/ConcurrentExclusiveLock.git</connection>
+		<developerConnection>scm:git:ssh://git@github.com/WangHHB/ConcurrentExclusiveLock.git</developerConnection>
+		<url>https://github.com/WangHHB/ConcurrentExclusiveLock</url>
+	</scm>
+
+	<build>
+		<pluginManagement>
+			<plugins>
+				<plugin>
+					<groupId>org.apache.maven.plugins</groupId>
+					<artifactId>maven-compiler-plugin</artifactId>
+					<version>3.13.0</version>
+					<configuration>
+						<release>${maven.compiler.release}</release>
+						<encoding>${project.build.sourceEncoding}</encoding>
+					</configuration>
+				</plugin>
+			</plugins>
+		</pluginManagement>
+	</build>
+
+	<profiles>
+		<profile>
+			<id>release</id>
+
+			<build>
+				<plugins>
+					<plugin>
+						<groupId>org.apache.maven.plugins</groupId>
+						<artifactId>maven-gpg-plugin</artifactId>
+						<version>3.2.8</version>
+
+						<executions>
+							<execution>
+								<id>sign-artifacts</id>
+								<phase>verify</phase>
+								<goals>
+									<goal>sign</goal>
+								</goals>
+								<configuration>
+									<keyname>5FFD923F9E6671F9D4FE97B84444D0876B64D648</keyname>
+									<bestPractices>true</bestPractices>
+								</configuration>
+							</execution>
+						</executions>
+					</plugin>
+
+					<plugin>
+						<groupId>org.sonatype.central</groupId>
+						<artifactId>central-publishing-maven-plugin</artifactId>
+						<version>0.11.0</version>
+						<extensions>true</extensions>
+						<configuration>
+							<publishingServerId>central</publishingServerId>
+							<autoPublish>false</autoPublish>
+						</configuration>
+					</plugin>
+				</plugins>
+			</build>
+		</profile>
+	</profiles>
+
 </project>
