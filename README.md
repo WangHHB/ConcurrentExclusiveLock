@@ -2,11 +2,6 @@
   <strong>English</strong> ｜ <a href="README_CN.md">简体中文</a>
 </p>
 
-## License
-
-ConcurrentExclusiveLock is dual-licensed under the MIT License or the Apache License 2.0, at your option.
-See [`LICENSE-MIT`](LICENSE-MIT) and [`LICENSE-APACHE-2.0`](LICENSE-APACHE-2.0) for details.
-
 # ConcurrentExclusiveLock
 
 [![C# Build and Test](https://github.com/WangHHB/ConcurrentExclusiveLock/actions/workflows/dotnet.yml/badge.svg)](https://github.com/WangHHB/ConcurrentExclusiveLock/actions/workflows/dotnet.yml)
@@ -15,6 +10,13 @@ See [`LICENSE-MIT`](LICENSE-MIT) and [`LICENSE-APACHE-2.0`](LICENSE-APACHE-2.0) 
 [![License](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
 **ConcurrentExclusiveLock (CEL)** is a Concurrent/Exclusive synchronization protocol designed for fine-grained state objects.
+
+## Implementations
+
+- [C#](./csharp) — Reference implementation
+- [Java](https://github.com/WangHHB/ConcurrentExclusiveLock/blob/main/java/README.md) — Java 17+, available on [Maven Central](https://central.sonatype.com/artifact/io.github.wanghhb/concurrent-exclusive-lock)
+- C++ — Planned
+
 
 ## Installation
 
@@ -982,6 +984,13 @@ The current C# / .NET implementation is the semantic reference. Implementations 
 - **Compatibility target**: .NET 8.0, .NET Standard 2.1
 - **Intended environments**: .NET, Unity3D, game servers, and other fine-grained state systems
 - **GitHub**: <https://github.com/WangHHB/ConcurrentExclusiveLock>
+
+---
+
+## License
+
+ConcurrentExclusiveLock is dual-licensed under the MIT License or the Apache License 2.0, at your option.
+See [`LICENSE-MIT`](LICENSE-MIT) and [`LICENSE-APACHE-2.0`](LICENSE-APACHE-2.0) for details.
 
 ---
 

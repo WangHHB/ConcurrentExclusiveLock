@@ -2,11 +2,6 @@
   <a href="README.md">English</a> ｜ <strong>简体中文</strong>
 </p>
 
-## 许可证
-
-ConcurrentExclusiveLock 采用 MIT License 或 Apache License 2.0 双重许可，您可以自行选择其中任意一种许可证。
-详细信息请参阅 [`LICENSE-MIT`](LICENSE-MIT) 和 [`LICENSE-APACHE-2.0`](LICENSE-APACHE-2.0)。
-
 # ConcurrentExclusiveLock
 
 [![C# Build and Test](https://github.com/WangHHB/ConcurrentExclusiveLock/actions/workflows/dotnet.yml/badge.svg)](https://github.com/WangHHB/ConcurrentExclusiveLock/actions/workflows/dotnet.yml)
@@ -15,6 +10,13 @@ ConcurrentExclusiveLock 采用 MIT License 或 Apache License 2.0 双重许可�
 [![License](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](#许可证)
 
 **ConcurrentExclusiveLock (CEL)** 是一个面向细粒度状态对象的 Concurrent / Exclusive 同步协议。
+
+## 语言实现
+
+- [C#](./csharp) — 参考实现
+- [Java](https://github.com/WangHHB/ConcurrentExclusiveLock/blob/main/java/README.md) — 支持 Java 17+，已发布到 [Maven Central](https://central.sonatype.com/artifact/io.github.wanghhb/concurrent-exclusive-lock)
+- C++ — 计划中
+
 
 ## 安装
 
@@ -1004,6 +1006,13 @@ Pipeline 已完成约 **240 小时随机调用压力测试**。
 - **兼容目标**：.NET 8.0、.NET Standard 2.1
 - **适用环境**：.NET、Unity3D、游戏服务器及其他细粒度状态系统
 - **GitHub**：<https://github.com/WangHHB/ConcurrentExclusiveLock>
+
+---
+
+## 许可证
+
+ConcurrentExclusiveLock 采用 MIT License 或 Apache License 2.0 双重许可，您可以自行选择其中任意一种许可证。
+详细信息请参阅 [`LICENSE-MIT`](LICENSE-MIT) 和 [`LICENSE-APACHE-2.0`](LICENSE-APACHE-2.0)。
 
 ---
 
