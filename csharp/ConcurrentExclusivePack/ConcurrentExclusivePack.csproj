@@ -6,7 +6,7 @@
     <Nullable>disable</Nullable>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
 
-    <Version>1.1.0</Version>
+    <Version>1.1.1</Version>
     <PackageId>ConcurrentExclusiveLock</PackageId>
     <Title>ConcurrentExclusiveLock</Title>
     <Authors>YiBo Wang</Authors>
@@ -20,7 +20,7 @@
 
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <PackageReleaseNotes>Initial NuGet package release for version 1.1.0.</PackageReleaseNotes>
+    <PackageReleaseNotes>Initial NuGet package release for version 1.1.1.</PackageReleaseNotes>
 
     <IsPackable>true</IsPackable>
     <IncludeSymbols>true</IncludeSymbols>
