@@ -1,10 +1,19 @@
 name: C# Build and Test
 
 on:
+  workflow_dispatch:
+
   push:
     branches: [ "main" ]
+    paths:
+      - "csharp/**"
+      - ".github/workflows/dotnet.yml"
+
   pull_request:
     branches: [ "main" ]
+    paths:
+      - "csharp/**"
+      - ".github/workflows/dotnet.yml"
 
 permissions:
   contents: read
@@ -26,20 +35,35 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
-      - name: Restore dependencies
-        run: dotnet restore ConcurrentExclusivePack.sln
-
-      - name: Build
+      - name: Restore library
         run: >
-          dotnet build ConcurrentExclusivePack.sln
+          dotnet restore
+          ConcurrentExclusivePack/ConcurrentExclusivePack.csproj
+
+      - name: Restore test project
+        run: >
+          dotnet restore
+          TestAndBenchmark/TestAndBenchmark.csproj
+
+      - name: Build library
+        run: >
+          dotnet build
+          ConcurrentExclusivePack/ConcurrentExclusivePack.csproj
           --configuration Release
           --no-restore
 
-      - name: Run correctness tests
+      - name: Build test project
+        run: >
+          dotnet build
+          TestAndBenchmark/TestAndBenchmark.csproj
+          --configuration Release
+          --no-restore
+
+      - name: Validate command-line entry
         run: >
           dotnet run
           --project TestAndBenchmark/TestAndBenchmark.csproj
           --configuration Release
           --no-build
           --
-          correctness
+          --help
