@@ -25,6 +25,202 @@ implementation 'io.github.wanghhb:concurrent-exclusive-lock:1.1.1'
 
 [Maven Central 页面](https://central.sonatype.com/artifact/io.github.wanghhb/concurrent-exclusive-lock)
 
+
+## 使用说明
+
+Java API 与 C# 参考实现保持相同的三层结构：
+
+1. `ConcurrentExclusiveLock`：底层权限协议；
+2. `ConcurrentExclusiveLockScope`：基于 `AutoCloseable` 的生命周期封装；
+3. `ConcurrentExclusiveLockPipeline`：顺序权限工作流编排。
+
+通常应为每个需要独立同步的实体、房间、玩家、会话、聚合根或任务上下文分别创建一把锁：
+
+```java
+import io.github.wanghhb.concurrentexclusivelock.ConcurrentExclusiveLock;
+
+private final ConcurrentExclusiveLock locker =
+        ConcurrentExclusiveLock.create();
+```
+
+### 底层 API
+
+`ConcurrentExclusiveLock` 提供对权限获取、释放、升级、降级和业务 ID 的直接控制：
+
+```java
+locker.acquireConcurrent();
+locker.tryAcquireConcurrent();
+
+locker.acquireExclusive();
+locker.tryAcquireExclusive();
+
+locker.releaseConcurrent();
+locker.releaseExclusive();
+
+locker.concurrentToExclusive();
+locker.exclusiveToConcurrent();
+
+locker.switchContextID(newContextID);
+locker.raiseEpochID(newEpochID);
+
+locker.tryConcurrentToExclusiveWithSwitchContextID(newContextID);
+locker.tryConcurrentToExclusiveWithRaiseEpochID(newEpochID);
+```
+
+超时重载使用 `java.time.Duration`。
+
+Exclusive 权限具有线程所有权，必须由获得它的同一线程释放或降级。
+
+### Scope
+
+大多数业务代码推荐使用 `ConcurrentExclusiveLockScope`。它实现了 `AutoCloseable`，因此可以配合 try-with-resources 使用；无论正常结束、提前返回还是抛出异常，`close()` 都会按照 Scope 最终持有的权限自动释放。
+
+Scope 是可变对象，不是线程安全对象，不能跨线程共享。
+
+#### Concurrent
+
+```java
+import io.github.wanghhb.concurrentexclusivelock.ConcurrentExclusiveLockScope;
+
+public void readState() {
+    try (ConcurrentExclusiveLockScope scope =
+                 new ConcurrentExclusiveLockScope(locker)) {
+
+        scope.acquireConcurrent();
+
+        readEntityState();
+
+        // 可以手动释放；省略时由 close() 自动释放。
+        // scope.releaseConcurrent();
+    }
+}
+```
+
+#### Exclusive
+
+```java
+public void modifyState() {
+    try (ConcurrentExclusiveLockScope scope =
+                 new ConcurrentExclusiveLockScope(locker)) {
+
+        scope.acquireExclusive();
+
+        modifyEntityState();
+
+        // 可以手动释放；省略时由 close() 自动释放。
+        // scope.releaseExclusive();
+    }
+}
+```
+
+#### Concurrent 检查后升级
+
+```java
+public void applyEpoch(int targetEpoch) {
+    try (ConcurrentExclusiveLockScope scope =
+                 new ConcurrentExclusiveLockScope(locker)) {
+
+        scope.acquireConcurrent();
+
+        inspectCurrentState();
+
+        if (!scope.tryConcurrentToExclusiveWithRaiseEpochID(targetEpoch)) {
+            // 升级失败时，原 Concurrent 已由协议自动释放，
+            // 不应再次调用 releaseConcurrent()。
+            return;
+        }
+
+        applyEpochUpdate();
+
+        // 当前 Scope 最终持有 Exclusive。
+    }
+}
+```
+
+#### Exclusive 完成后降级
+
+```java
+public void rebuildAndPublish() {
+    try (ConcurrentExclusiveLockScope scope =
+                 new ConcurrentExclusiveLockScope(locker)) {
+
+        scope.acquireExclusive();
+
+        rebuildEntityState();
+
+        scope.exclusiveToConcurrent();
+
+        publishSnapshot();
+
+        // 当前 Scope 最终持有 Concurrent。
+    }
+}
+```
+
+### Pipeline
+
+`ConcurrentExclusiveLockPipeline` 使用一组同步 `Runnable` Segment 描述完整的权限工作流。
+
+```java
+import io.github.wanghhb.concurrentexclusivelock.ConcurrentExclusiveLockPipeline;
+import io.github.wanghhb.concurrentexclusivelock.ConcurrentExclusiveLockSegment;
+
+ConcurrentExclusiveLockPipeline pipeline =
+        new ConcurrentExclusiveLockPipeline(locker);
+
+pipeline.doPipeline(
+        ConcurrentExclusiveLockSegment.concurrent(
+                this::readCurrentState),
+
+        ConcurrentExclusiveLockSegment.tryApplyIDConvergeExclusive(
+                this::applyNewEpoch,
+                targetEpoch,
+                ConcurrentExclusiveLockSegment.IDType.EPOCH_ID),
+
+        ConcurrentExclusiveLockSegment.convergeConcurrent(
+                this::publishNewSnapshot),
+
+        ConcurrentExclusiveLockSegment.none(
+                this::notifyOtherSystems)
+);
+```
+
+可用的 Segment 工厂方法：
+
+| Segment 工厂方法 | 语义 |
+|---|---|
+| `none(...)` | 在不持有访问权限的状态下执行。 |
+| `concurrent(...)` | 获取一段独立 Concurrent；连续独立段也会释放后重新申请。 |
+| `tryConcurrent(...)` | 尝试获取一段独立 Concurrent；失败时跳过当前段。 |
+| `exclusive(...)` | 获取一段独立 Exclusive；连续独立段也会释放后重新申请。 |
+| `testExclusive(...)` | 仅在锁处于 Idle 时尝试 Exclusive，不抢占已有 Concurrent。 |
+| `tryExclusive(...)` | 尝试抢占式 Exclusive。 |
+| `convergeConcurrent(...)` | 延续 Concurrent、将 Exclusive 原地降级为 Concurrent，或重新获取 Concurrent。 |
+| `convergeExclusive(...)` | 延续 Exclusive、将 Concurrent 原地升级为 Exclusive，或重新获取 Exclusive。 |
+| `tryApplyIDConvergeExclusive(...)` | 尝试应用 ContextID 或 EpochID，仅在成功时收敛到 Exclusive。 |
+
+Try 类型 Segment 未满足执行条件时：
+
+- 当前 Segment 不执行；
+- Pipeline 不抛出异常；
+- 当前权限状态变为 `NONE`；
+- 后续 Segment 继续执行。
+
+### 同步与异步边界
+
+Pipeline Segment 是同步 `Runnable`。受保护的业务必须在 `Runnable.run()` 返回之前全部完成。
+
+不能在 Segment 中启动异步任务后立即返回：
+
+```java
+ConcurrentExclusiveLockSegment.exclusive(() -> {
+    // 不受支持：Runnable 返回后，Pipeline 无法继续为异步任务保持权限。
+    java.util.concurrent.CompletableFuture.runAsync(this::modifyEntityState);
+});
+```
+
+`doPipelineAsync(...)` 只是把整条同步 Pipeline 调度到公共线程池或指定的 `Executor` 中执行，并不会让单个 Segment 支持异步跨越。
+
 目录结构对应 C# 版本：
 
 ```text
