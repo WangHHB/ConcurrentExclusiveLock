@@ -8,13 +8,13 @@
     <parent>
         <groupId>io.github.wanghhb</groupId>
         <artifactId>concurrent-exclusive-lock-java</artifactId>
-        <version>1.1.1</version>
+        <version>1.1.2</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
 
     <artifactId>concurrent-exclusive-lock</artifactId>
     <name>ConcurrentExclusiveLock</name>
-    <description>High-performance Concurrent / Exclusive access-permission lock for Java.</description>
+    <description>High-performance non-recursive upgradeable concurrent/exclusive lock for Java with preemptive exclusive access and in-place upgrade/downgrade, designed as an alternative to traditional read-write and reader-writer locks.</description>
 
     <build>
         <plugins>
