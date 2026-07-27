@@ -328,6 +328,27 @@ Unsupported platforms can provide another internal monitor/atomic backend withou
 
 ---
 
+## Build directly with Visual Studio 2026 (no CMake required)
+
+Open the solution in the project root:
+
+```text
+ConcurrentExclusiveLock.sln
+```
+
+Select `Release | x64`, set `TestAndBenchmark` as the startup project, and build the solution. The executable is written to:
+
+```text
+bin\x64\Release\TestAndBenchmark.exe
+```
+
+The Release configuration includes a memory-workload benchmark command line with Work 640. You can also run:
+
+```powershell
+.\build-vs.ps1
+.\run-benchmark-vs.ps1
+```
+
 ## Build
 
 Requirements:

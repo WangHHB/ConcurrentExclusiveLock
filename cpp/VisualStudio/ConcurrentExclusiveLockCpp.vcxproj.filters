@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup><Filter Include="Source Files"><UniqueIdentifier>{CE39C68D-2AF3-4268-B26C-BD05A5DFB839}</UniqueIdentifier></Filter><Filter Include="Header Files"><UniqueIdentifier>{7047AA7A-E115-43C1-982A-F4CE27FE01C1}</UniqueIdentifier></Filter></ItemGroup>
+  <ItemGroup><ClCompile Include="..\src\ConcurrentExclusiveLock.cpp"><Filter>Source Files</Filter></ClCompile></ItemGroup>
+  <ItemGroup><ClInclude Include="..\include\ConcurrentExclusiveLock.hpp"><Filter>Header Files</Filter></ClInclude><ClInclude Include="..\include\ConcurrentExclusiveLock.h"><Filter>Header Files</Filter></ClInclude><ClInclude Include="..\src\ConcurrentExclusiveLockInternal.h"><Filter>Header Files</Filter></ClInclude></ItemGroup>
+</Project>

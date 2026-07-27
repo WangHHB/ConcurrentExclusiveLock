@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup><Filter Include="Source Files"><UniqueIdentifier>{3F8BE046-3C97-49F4-B018-B8485A830F05}</UniqueIdentifier></Filter><Filter Include="Header Files"><UniqueIdentifier>{38C7FD95-BB87-4592-AD18-A6B3AE95CD97}</UniqueIdentifier></Filter></ItemGroup>
+  <ItemGroup><ClCompile Include="..\TestAndBenchmark\main.cpp"><Filter>Source Files</Filter></ClCompile><ClCompile Include="..\TestAndBenchmark\SemanticTests.cpp"><Filter>Source Files</Filter></ClCompile><ClCompile Include="..\TestAndBenchmark\Benchmark.cpp"><Filter>Source Files</Filter></ClCompile><ClCompile Include="..\TestAndBenchmark\c_api_smoke.c"><Filter>Source Files</Filter></ClCompile></ItemGroup>
+  <ItemGroup><ClInclude Include="..\TestAndBenchmark\Benchmark.hpp"><Filter>Header Files</Filter></ClInclude><ClInclude Include="..\TestAndBenchmark\SemanticTests.hpp"><Filter>Header Files</Filter></ClInclude><ClInclude Include="..\TestAndBenchmark\Workloads.hpp"><Filter>Header Files</Filter></ClInclude><ClInclude Include="..\include\ConcurrentExclusiveLock.h"><Filter>Header Files</Filter></ClInclude><ClInclude Include="..\include\ConcurrentExclusiveLock.hpp"><Filter>Header Files</Filter></ClInclude></ItemGroup>
+</Project>

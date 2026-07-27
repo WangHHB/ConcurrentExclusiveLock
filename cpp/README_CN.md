@@ -340,6 +340,29 @@ POSIX 路径面向 Linux、macOS、Android、iOS 以及其他 pthread 系统。 
 
 ---
 
+## 使用 Visual Studio 2026 直接构建（无需 CMake）
+
+项目根目录提供了可直接打开的：
+
+```text
+ConcurrentExclusiveLock.sln
+```
+
+双击打开后，选择 `Release | x64`，将 `TestAndBenchmark` 设为启动项目，然后生成解决方案。生成程序位于：
+
+```text
+bin\x64\Release\TestAndBenchmark.exe
+```
+
+Release 配置已经预设 `memory` Work 640 的正式跑分参数。也可以执行：
+
+```powershell
+.\build-vs.ps1
+.\run-benchmark-vs.ps1
+```
+
+详细步骤见 [`VisualStudio/README_CN.md`](VisualStudio/README_CN.md)。
+
 ## 构建
 
 要求：

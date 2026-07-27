@@ -18,7 +18,7 @@
     <RepositoryUrl>https://github.com/WangHHB/ConcurrentExclusiveLock</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
 
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageLicenseExpression>MIT or Apache-2.0</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageReleaseNotes>Initial NuGet package release for version 1.1.1.</PackageReleaseNotes>
 
@@ -38,7 +38,10 @@
 
   <ItemGroup>
 
-    <None Include="..\..\LICENSE" Pack="true" PackagePath="\" Link="LICENSE">
+    <None Include="..\..\LICENSE-MIT" Pack="true" PackagePath="\" Link="LICENSE-MIT">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </None>
+    <None Include="..\..\LICENSE-APACHE-2.0" Pack="true" PackagePath="\" Link="LICENSE-APACHE-2.0">
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </None>
   </ItemGroup>

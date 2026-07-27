@@ -22,3 +22,5 @@ CMakeUserPresets.json
 *.ilk
 *.log
 .DS_Store
+/bin/
+/obj/
