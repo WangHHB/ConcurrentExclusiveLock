@@ -1051,9 +1051,11 @@ See [PERFORMANCE.md](PERFORMANCE.md).
 
 ---
 
-## Observed Local Benchmark Result
+## Observed Local Benchmark Results
 
-The following data is one release-build run from the Linux container used to create this source package. It is a reproducibility reference, not a cross-platform performance claim.
+The following results come from two independent Release-build memory-workload runs. They are included as reproducible observations, not as universal cross-platform performance claims. The Linux and Windows runs use different hardware and workload parameters, so the absolute values must not be compared directly across the two machines.
+
+### Linux: multiple fine-grained locks
 
 ```text
 Compiler:          GCC/G++ 14.2.0
@@ -1067,18 +1069,55 @@ Total operations: 3,200,000 per strategy and scenario
 Read/write work:  32 / 32 steps
 ```
 
-CEL results:
+CEL compared with `std::shared_mutex`:
 
-| Read/write | Throughput | Work/CPU% | Average write time | Brief observation |
-|---:|---:|---:|---:|---|
-| 100/0 | 4,771,451 works/s | 60,266 | — | Close to `std::shared_mutex`; the difference was small. |
-| 99.5/0.5 | 3,421,835 works/s | 42,857 | 89.85 μs | Highest throughput in this run; much lower write time than `std::shared_mutex`, while a fully serialized `std::mutex` had lower write time. |
-| 90/10 | 3,108,759 works/s | 42,362 | 7.97 μs | Highest throughput in this run. |
-| 50/50 | 2,687,139 works/s | 35,262 | 5.11 μs | Slightly highest throughput and lowest average write time in this run. |
-| 30/70 | 2,734,470 works/s | 36,925 | 4.82 μs | Competitive, but `std::shared_mutex` had higher throughput. |
-| 0/100 | 2,701,963 works/s | 36,209 | 5.06 μs | Similar to ordinary exclusive-lock strategies; CEL was slightly highest in this run. |
+| Read/write | `std::shared_mutex` works/s | CEL works/s | CEL throughput difference | `std::shared_mutex` avg write | CEL avg write | Write-latency comparison |
+|---:|---:|---:|---:|---:|---:|---:|
+| 100/0 | 4,902,155 | 4,771,451 | -2.67% | — | — | — |
+| 99.5/0.5 | 3,282,886 | 3,421,835 | +4.23% | 497.30 μs | 89.85 μs | 5.54× lower |
+| 90/10 | 1,629,067 | 3,108,759 | +90.83% | 59.95 μs | 7.97 μs | 7.52× lower |
+| 50/50 | 2,663,306 | 2,687,139 | +0.89% | 8.14 μs | 5.11 μs | 1.59× lower |
+| 30/70 | 2,872,152 | 2,734,470 | -4.79% | 6.16 μs | 4.82 μs | 1.28× lower |
+| 0/100 | 2,334,148 | 2,701,963 | +15.76% | 5.71 μs | 5.06 μs | 1.13× lower |
 
-In this environment, CEL showed its clearest throughput advantage in the read-dominant mixed scenarios and remained competitive as the workload became write-heavy. The small CPU quota, oversubscription, standard-library implementation, and platform scheduler strongly affect these numbers. The complete raw output is stored in [`TestResults/benchmark-memory-long-linux.txt`](TestResults/benchmark-memory-long-linux.txt).
+### Windows: one lock under 64-thread contention
+
+```text
+Compiler/runtime:  MSVC Release build on Windows
+Reported CPUs:     16
+Lock instances:   1
+Threads per lock: 64
+Total threads:    64
+Workload:         memory, 64 MiB shared by the lock
+Operations:       10,000 per thread
+Total operations: 640,000 per strategy and scenario
+Read/write work:  64 / 128 steps
+```
+
+CEL compared with `std::shared_mutex`:
+
+| Read/write | `std::shared_mutex` works/s | CEL works/s | CEL throughput difference | `std::shared_mutex` avg write | CEL avg write | Write-latency comparison |
+|---:|---:|---:|---:|---:|---:|---:|
+| 100/0 | 6,867,130 | 7,138,491 | +3.95% | — | — | — |
+| 99.5/0.5 | 3,608,730 | 3,552,412 | -1.56% | 253.19 μs | 30.28 μs | 8.36× lower |
+| 90/10 | 916,086 | 961,376 | +4.94% | 179.91 μs | 75.39 μs | 2.39× lower |
+| 50/50 | 334,891 | 375,224 | +12.04% | 175.04 μs | 173.40 μs | approximately equal |
+| 30/70 | 270,018 | 299,836 | +11.04% | 182.01 μs | 214.06 μs | 17.61% higher |
+| 0/100 | 235,043 | 200,049 | -14.89% | 270.48 μs | 316.45 μs | 17.00% higher |
+
+### Interpretation
+
+These measurements do not show a universal throughput winner. They show a more useful and more reproducible pattern:
+
+- In the pure-Concurrent case, CEL remained close to `std::shared_mutex` in both environments: -2.67% in the Linux run and +3.95% in the Windows run.
+- With only 0.5% writes, total throughput stayed within approximately 4.3% of `std::shared_mutex`, while CEL reduced average write time by 5.54× on Linux and 8.36× on Windows. This is the clearest result for CEL's preemptive-Exclusive design goal.
+- At 90/10, CEL had higher throughput and substantially lower average write time in both runs. The unusually large Linux throughput gap should still be treated as platform- and scheduler-specific rather than a universal ratio.
+- At 50/50, CEL was slightly faster on Linux and 12.04% faster on Windows; write latency was lower on Linux and effectively equal on Windows.
+- Write-heavy and pure-Exclusive results were mixed. CEL was not consistently faster: it lost throughput in the Linux 30/70 case and the Windows 0/100 case, while winning the other corresponding runs. 
+
+`std::shared_mutex` is a mature, highly optimized standard-library primitive and therefore a strong baseline. It also has a narrower semantic surface. Within CEL's intended **non-recursive** permission model, the same implementation supports preemptive Exclusive acquisition, in-place Concurrent-to-Exclusive upgrade, in-place Exclusive-to-Concurrent downgrade, Try and timed acquisition, ContextID/EpochID-conditioned convergence, RAII Scope management, and synchronous Pipeline orchestration.
+
+The significant result is therefore not that CEL wins every throughput row. It is that CEL remains close to or exceeds a highly optimized baseline in several important workloads—especially rare-write and mixed-access workloads—while retaining the complete acquisition, conversion, conditional-convergence, Scope, and Pipeline semantics of its design. Applications should still benchmark their own lock topology, contention level, critical-region duration, compiler, standard library, operating system, and CPU architecture.
 
 ---
 
