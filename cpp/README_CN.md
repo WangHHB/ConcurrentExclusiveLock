@@ -775,6 +775,7 @@ Scope 规则：
 - 禁止复制和移动；
 - 不恢复、不清理 ContextID/EpochID；
 - 手动释放会同步更新最终权限记录；
+- `Dispose()` 最多释放一次最终持有权限，析构函数会自动调用它；
 - 析构函数不抛异常。
 
 ---
@@ -1126,11 +1127,16 @@ CEL 与 `std::shared_mutex` 的对比：
 - 写入比例只有 0.5% 时，总吞吐量与 `std::shared_mutex` 的差异仍控制在约 4.3% 以内，但 CEL 的平均写入时间分别降低了 5.54 倍和 8.36 倍。这是抢占式 Exclusive 设计目标最明确的实测结果。
 - 90/10 场景中，CEL 在两个环境里都取得了更高吞吐和显著更低的写入时间；其中 Linux 的吞吐差距异常大，应当视为该平台标准库实现和调度环境下的结果，而不是可直接外推的固定比例。
 - 50/50 场景中，CEL 在 Linux 略高 0.89%，在 Windows 高 12.04%；写入延迟在 Linux 更低，在 Windows 基本相同。
-- 写入密集和纯 Exclusive 场景的结果是混合的。CEL 并非始终更快：Linux 30/70 和 Windows 0/100 中吞吐落后，而对应的另外两组结果中又取得领先。
+- 写入密集和纯 Exclusive 场景的结果是混合的。CEL 并非始终更快：Linux 30/70 和 Windows 0/100 中吞吐落后，而对应的另外两组结果中又取得领先。因此项目不应宣称对 `std::shared_mutex` 全面碾压。
 
 `std::shared_mutex` 是成熟且经过标准库与平台长期优化的通用同步原语，本身就是非常强的性能基线；与此同时，它提供的语义范围也更窄。在 CEL 预期的**非递归**权限模型内，同一套实现还完整支持抢占式 Exclusive、Concurrent→Exclusive 原地升级、Exclusive→Concurrent 原地降级、Try 与超时获取、ContextID/EpochID 条件收敛、RAII Scope，以及同步 Pipeline 权限编排。
 
 因此，更准确的结论不是“CEL 每一项吞吐都比 `std::shared_mutex` 快”，而是：CEL 在稀疏写入和多种混合负载中表现出明确优势，在其他场景中也能保持接近或具有竞争力的基础性能，并且没有为了跑分而裁剪其获取、转换、条件收敛、Scope 和 Pipeline 语义。实际项目仍应根据锁实例数量、每把锁的竞争者数量、临界区长度、编译器、标准库、操作系统和 CPU 架构进行自己的基准测试。
+
+完整原始输出：
+
+- [`TestResults/benchmark-memory-long-linux.txt`](TestResults/benchmark-memory-long-linux.txt)
+- [`TestResults/benchmark-memory-long-windows.txt`](TestResults/benchmark-memory-long-windows.txt)
 
 ---
 
@@ -1140,10 +1146,10 @@ CEL 与 `std::shared_mutex` 的对比：
 ConcurrentExclusiveLock-C-Cpp/
 ├─ include/
 │  ├─ ConcurrentExclusiveLock.h       # 公开 C API
-│  └─ ConcurrentExclusiveLock.hpp     # 公开 C++ API
+│  └─ ConcurrentExclusiveLock.hpp     # 内联 C++ Lock/Scope/Segment 封装
 ├─ src/
 │  ├─ ConcurrentExclusiveLock.c       # C 核心和平台后端
-│  ├─ ConcurrentExclusiveLock.cpp     # C++ Lock/Scope/Pipeline
+│  ├─ ConcurrentExclusiveLock.cpp     # C++ 生命周期/错误桥接和 Pipeline 执行
 │  └─ ConcurrentExclusiveLockInternal.h
 ├─ TestAndBenchmark/
 │  ├─ c_api_smoke.c

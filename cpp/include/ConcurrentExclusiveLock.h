@@ -105,10 +105,11 @@ int32_t cel_lock_observed_contention(const cel_lock* lock);
 /* Business identifiers outside the permission protocol. */
 int32_t cel_lock_get_context_id(const cel_lock* lock);
 void cel_lock_set_context_id(cel_lock* lock, int32_t value);
-bool cel_lock_switch_context_id(cel_lock* lock, int32_t new_context_id);
 
 int32_t cel_lock_get_epoch_id(const cel_lock* lock);
 void cel_lock_set_epoch_id(cel_lock* lock, int32_t value);
+
+bool cel_lock_switch_context_id(cel_lock* lock, int32_t new_context_id);
 bool cel_lock_raise_epoch_id(cel_lock* lock, int32_t new_epoch_id);
 
 /*

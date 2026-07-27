@@ -762,6 +762,7 @@ Scope rules:
 - not copyable or movable;
 - does not restore or clear ContextID/EpochID;
 - explicit release updates the tracked final state;
+- `Dispose()` releases the final held permission at most once, and the destructor calls it automatically;
 - destructor never throws.
 
 ---
@@ -1113,11 +1114,16 @@ These measurements do not show a universal throughput winner. They show a more u
 - With only 0.5% writes, total throughput stayed within approximately 4.3% of `std::shared_mutex`, while CEL reduced average write time by 5.54× on Linux and 8.36× on Windows. This is the clearest result for CEL's preemptive-Exclusive design goal.
 - At 90/10, CEL had higher throughput and substantially lower average write time in both runs. The unusually large Linux throughput gap should still be treated as platform- and scheduler-specific rather than a universal ratio.
 - At 50/50, CEL was slightly faster on Linux and 12.04% faster on Windows; write latency was lower on Linux and effectively equal on Windows.
-- Write-heavy and pure-Exclusive results were mixed. CEL was not consistently faster: it lost throughput in the Linux 30/70 case and the Windows 0/100 case, while winning the other corresponding runs. 
+- Write-heavy and pure-Exclusive results were mixed. CEL was not consistently faster: it lost throughput in the Linux 30/70 case and the Windows 0/100 case, while winning the other corresponding runs. This is why the project does not claim universal superiority over `std::shared_mutex`.
 
 `std::shared_mutex` is a mature, highly optimized standard-library primitive and therefore a strong baseline. It also has a narrower semantic surface. Within CEL's intended **non-recursive** permission model, the same implementation supports preemptive Exclusive acquisition, in-place Concurrent-to-Exclusive upgrade, in-place Exclusive-to-Concurrent downgrade, Try and timed acquisition, ContextID/EpochID-conditioned convergence, RAII Scope management, and synchronous Pipeline orchestration.
 
 The significant result is therefore not that CEL wins every throughput row. It is that CEL remains close to or exceeds a highly optimized baseline in several important workloads—especially rare-write and mixed-access workloads—while retaining the complete acquisition, conversion, conditional-convergence, Scope, and Pipeline semantics of its design. Applications should still benchmark their own lock topology, contention level, critical-region duration, compiler, standard library, operating system, and CPU architecture.
+
+Complete raw outputs:
+
+- [`TestResults/benchmark-memory-long-linux.txt`](TestResults/benchmark-memory-long-linux.txt)
+- [`TestResults/benchmark-memory-long-windows.txt`](TestResults/benchmark-memory-long-windows.txt)
 
 ---
 
@@ -1127,10 +1133,10 @@ The significant result is therefore not that CEL wins every throughput row. It i
 ConcurrentExclusiveLock-C-Cpp/
 ├─ include/
 │  ├─ ConcurrentExclusiveLock.h       # Public C API
-│  └─ ConcurrentExclusiveLock.hpp     # Public C++ API
+│  └─ ConcurrentExclusiveLock.hpp     # Inline C++ Lock/Scope/Segment wrappers
 ├─ src/
 │  ├─ ConcurrentExclusiveLock.c       # C core + platform backends
-│  ├─ ConcurrentExclusiveLock.cpp     # C++ Lock/Scope/Pipeline
+│  ├─ ConcurrentExclusiveLock.cpp     # C++ lifecycle/error bridge + Pipeline execution
 │  └─ ConcurrentExclusiveLockInternal.h
 ├─ TestAndBenchmark/
 │  ├─ c_api_smoke.c

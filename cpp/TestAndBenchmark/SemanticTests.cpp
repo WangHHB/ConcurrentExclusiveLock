@@ -395,6 +395,15 @@ void TestScopeLifecycle() {
     }
     Require(lock.ObservedState() == ConcurrentExclusiveLockState::Idle,
             "Scope did not release converted permission");
+
+    {
+        ConcurrentExclusiveLockScope scope(lock);
+        scope.AcquireExclusive();
+        scope.Dispose();
+        scope.Dispose();
+    }
+    Require(lock.ObservedState() == ConcurrentExclusiveLockState::Idle,
+            "Scope Dispose did not release exactly once");
 }
 
 void TestTimeouts() {
