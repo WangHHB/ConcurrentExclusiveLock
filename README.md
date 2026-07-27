@@ -15,7 +15,7 @@
 
 - [C#](./csharp) — Reference implementation
 - [Java](./java/README.md) — Java 17+, available on [Maven Central](https://central.sonatype.com/artifact/io.github.wanghhb/concurrent-exclusive-lock)
-- C++ — Planned
+- [C++](./cpp/README.md)
 
 
 ## Installation

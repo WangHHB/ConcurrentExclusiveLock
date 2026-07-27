@@ -15,7 +15,7 @@
 
 - [C#](./csharp) — 参考实现
 - [Java](./java/README_CN.md) — 支持 Java 17+，已发布到 [Maven Central](https://central.sonatype.com/artifact/io.github.wanghhb/concurrent-exclusive-lock)
-- C++ — 计划中
+- [C++](./cpp/README_CN.md)
 
 
 ## 安装
