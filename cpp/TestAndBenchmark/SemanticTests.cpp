@@ -7,6 +7,7 @@
 #include <condition_variable>
 #include <exception>
 #include <future>
+#include <iomanip>
 #include <iostream>
 #include <limits>
 #include <mutex>
@@ -612,6 +613,380 @@ void RunRandomValidPaths(const SemanticOptions& options) {
     }
 }
 
+
+class PipelineInjectedException final : public std::runtime_error {
+public:
+    PipelineInjectedException()
+        : std::runtime_error("injected Pipeline segment exception") {}
+};
+
+struct PipelineStressShared {
+    ConcurrentExclusiveLock lock;
+    PermissionProbe probe;
+    std::atomic<std::int32_t> nextContextID{INT32_C(0x10000000)};
+    std::atomic<std::int32_t> nextEpochID{INT32_C(0x20000000)};
+};
+
+struct PipelineStressBatchState {
+    explicit PipelineStressBatchState(int lockCount, int totalWorkers)
+        : startGate(totalWorkers), finishedWorkers(0) {
+        locks.reserve(static_cast<std::size_t>(lockCount));
+        for (int index = 0; index < lockCount; ++index) {
+            locks.push_back(std::make_unique<PipelineStressShared>());
+        }
+    }
+
+    std::vector<std::unique_ptr<PipelineStressShared>> locks;
+    StartGate startGate;
+    std::atomic<int> finishedWorkers;
+    std::atomic<bool> cancel{false};
+    std::atomic<bool> failureRecorded{false};
+    std::atomic<std::uint64_t> completedRounds{0};
+    std::atomic<std::uint64_t> totalSegments{0};
+    std::mutex errorMutex;
+    std::exception_ptr firstError;
+};
+
+struct PipelineStressTotals {
+    std::atomic<std::uint64_t> batches{0};
+    std::atomic<std::uint64_t> pipelines{0};
+    std::atomic<std::uint64_t> segments{0};
+};
+
+std::string FormatDuration(std::chrono::milliseconds value) {
+    if (value.count() < 0) {
+        value = std::chrono::milliseconds::zero();
+    }
+
+    const std::uint64_t totalSeconds =
+        static_cast<std::uint64_t>(value.count() / 1000);
+    const std::uint64_t days = totalSeconds / UINT64_C(86400);
+    const std::uint64_t hours = (totalSeconds / UINT64_C(3600)) % UINT64_C(24);
+    const std::uint64_t minutes = (totalSeconds / UINT64_C(60)) % UINT64_C(60);
+    const std::uint64_t seconds = totalSeconds % UINT64_C(60);
+
+    std::ostringstream stream;
+    stream << std::setfill('0');
+    if (days != 0) {
+        stream << days << '.';
+    }
+    stream << std::setw(2) << hours << ':'
+           << std::setw(2) << minutes << ':'
+           << std::setw(2) << seconds;
+    return stream.str();
+}
+
+void RecordPipelineStressFailure(
+    const std::shared_ptr<PipelineStressBatchState>& state,
+    std::exception_ptr error) {
+    {
+        std::lock_guard<std::mutex> guard(state->errorMutex);
+        if (!state->firstError) {
+            state->firstError = error;
+        }
+    }
+    state->failureRecorded.store(true, std::memory_order_release);
+    state->cancel.store(true, std::memory_order_release);
+}
+
+std::exception_ptr ReadPipelineStressFailure(
+    const std::shared_ptr<PipelineStressBatchState>& state) {
+    std::lock_guard<std::mutex> guard(state->errorMutex);
+    return state->firstError;
+}
+
+std::vector<ConcurrentExclusiveLockSegment> BuildRandomPipelineSegments(
+    PipelineStressShared& shared,
+    std::mt19937_64& random,
+    int worker,
+    int round) {
+    const int segmentCount = 3 + static_cast<int>(random() % 5u);
+    std::vector<ConcurrentExclusiveLockSegment> segments;
+    segments.reserve(static_cast<std::size_t>(segmentCount));
+
+    for (int segmentIndex = 0; segmentIndex < segmentCount; ++segmentIndex) {
+        const std::uint64_t kind = random() % 8u;
+        switch (kind) {
+            case 0:
+                segments.push_back(ConcurrentExclusiveLockSegment::None([] {}));
+                break;
+            case 1:
+                segments.push_back(ConcurrentExclusiveLockSegment::Concurrent([&shared] {
+                    shared.probe.EnterConcurrent();
+                    shared.probe.ExitConcurrent();
+                }));
+                break;
+            case 2:
+                segments.push_back(ConcurrentExclusiveLockSegment::ConvergeConcurrent([&shared] {
+                    shared.probe.EnterConcurrent();
+                    shared.probe.ExitConcurrent();
+                }));
+                break;
+            case 3:
+                segments.push_back(ConcurrentExclusiveLockSegment::Exclusive([&shared] {
+                    shared.probe.EnterExclusive();
+                    shared.probe.ExitExclusive();
+                }));
+                break;
+            case 4: {
+                const bool useContextID = ((round + segmentIndex + worker) & 1) == 0;
+                if (useContextID) {
+                    const std::int32_t id = shared.nextContextID.fetch_add(
+                        1, std::memory_order_relaxed) + 1;
+                    segments.push_back(
+                        ConcurrentExclusiveLockSegment::TryApplyIDConvergeExclusive(
+                            [&shared] {
+                                shared.probe.EnterExclusive();
+                                shared.probe.ExitExclusive();
+                            },
+                            id,
+                            ConcurrentExclusiveLockSegment::IDType::ContextID));
+                } else {
+                    const std::int32_t id = shared.nextEpochID.fetch_add(
+                        1, std::memory_order_relaxed) + 1;
+                    segments.push_back(
+                        ConcurrentExclusiveLockSegment::TryApplyIDConvergeExclusive(
+                            [&shared] {
+                                shared.probe.EnterExclusive();
+                                shared.probe.ExitExclusive();
+                            },
+                            id,
+                            ConcurrentExclusiveLockSegment::IDType::EpochID));
+                }
+                break;
+            }
+            case 5:
+                segments.push_back(ConcurrentExclusiveLockSegment::ConvergeExclusive([&shared] {
+                    shared.probe.EnterExclusive();
+                    shared.probe.ExitExclusive();
+                }));
+                break;
+            case 6:
+                segments.push_back(ConcurrentExclusiveLockSegment::TryExclusive([&shared] {
+                    shared.probe.EnterExclusive();
+                    shared.probe.ExitExclusive();
+                }));
+                break;
+            default:
+                segments.push_back(ConcurrentExclusiveLockSegment::TryConcurrent([&shared] {
+                    shared.probe.EnterConcurrent();
+                    shared.probe.ExitConcurrent();
+                }));
+                break;
+        }
+    }
+
+    return segments;
+}
+
+void PrintPipelineStressHeartbeat(
+    std::chrono::milliseconds elapsed,
+    std::chrono::milliseconds duration,
+    const PipelineStressTotals& totals,
+    std::uint64_t batchNumber,
+    std::uint64_t batchSeed,
+    int lockCount,
+    int workersPerLock,
+    int roundsPerLock,
+    int activeWorkers) {
+    const std::chrono::milliseconds remaining =
+        elapsed < duration ? duration - elapsed : std::chrono::milliseconds::zero();
+    std::cout << "[OK] elapsed=" << FormatDuration(elapsed)
+              << ", remaining=" << FormatDuration(remaining)
+              << ", batches=" << totals.batches.load(std::memory_order_relaxed)
+              << ", pipelines=" << totals.pipelines.load(std::memory_order_relaxed)
+              << ", segments=" << totals.segments.load(std::memory_order_relaxed)
+              << ", current-batch=" << batchNumber
+              << ", current-seed=" << batchSeed
+              << ", current-shape=" << lockCount << 'x'
+              << workersPerLock << 'x' << roundsPerLock
+              << ", active-workers=" << activeWorkers << '\n' << std::flush;
+}
+
+void RunPipelineStressBatch(
+    int lockCount,
+    int workersPerLock,
+    int roundsPerLock,
+    std::uint64_t batchSeed,
+    std::uint64_t batchNumber,
+    std::chrono::steady_clock::time_point stressStart,
+    std::chrono::milliseconds duration,
+    std::chrono::steady_clock::time_point& nextHeartbeat,
+    const std::shared_ptr<PipelineStressTotals>& totals) {
+    constexpr auto pollInterval = std::chrono::milliseconds(50);
+    constexpr auto noProgressTimeout = std::chrono::minutes(10);
+    constexpr auto detachGrace = std::chrono::seconds(1);
+
+    const int totalWorkers = lockCount * workersPerLock;
+    auto state = std::make_shared<PipelineStressBatchState>(
+        lockCount, totalWorkers);
+    std::vector<std::thread> threads;
+    threads.reserve(static_cast<std::size_t>(totalWorkers));
+
+    for (int lockIndex = 0; lockIndex < lockCount; ++lockIndex) {
+        for (int worker = 0; worker < workersPerLock; ++worker) {
+            threads.emplace_back([
+                state,
+                totals,
+                lockIndex,
+                worker,
+                roundsPerLock,
+                batchSeed] {
+                try {
+                    PipelineStressShared& shared =
+                        *state->locks[static_cast<std::size_t>(lockIndex)];
+                    std::mt19937_64 random(
+                        batchSeed ^
+                        (static_cast<std::uint64_t>(lockIndex + 1) << 32) ^
+                        static_cast<std::uint64_t>(worker + 1));
+                    ConcurrentExclusiveLockPipeline pipeline(shared.lock);
+                    state->startGate.ArriveAndWait();
+
+                    for (int round = 0; round < roundsPerLock; ++round) {
+                        if (state->cancel.load(std::memory_order_acquire)) {
+                            break;
+                        }
+
+                        // Keep exception-release coverage under real contention, but
+                        // catch only the dedicated injected exception type.
+                        if ((random() & UINT64_C(31)) == 0) {
+                            try {
+                                pipeline.DoPipeline(
+                                    ConcurrentExclusiveLockSegment::Exclusive([&shared] {
+                                        shared.probe.EnterExclusive();
+                                        shared.probe.ExitExclusive();
+                                        throw PipelineInjectedException();
+                                    }));
+                            } catch (const PipelineInjectedException&) {
+                            }
+                            state->totalSegments.fetch_add(
+                                1, std::memory_order_relaxed);
+                            totals->segments.fetch_add(1, std::memory_order_relaxed);
+                        } else {
+                            std::vector<ConcurrentExclusiveLockSegment> segments =
+                                BuildRandomPipelineSegments(
+                                    shared, random, worker, round);
+                            const std::uint64_t segmentCount =
+                                static_cast<std::uint64_t>(segments.size());
+                            pipeline.DoPipeline(segments);
+                            state->totalSegments.fetch_add(
+                                segmentCount, std::memory_order_relaxed);
+                            totals->segments.fetch_add(
+                                segmentCount, std::memory_order_relaxed);
+                        }
+
+                        state->completedRounds.fetch_add(
+                            1, std::memory_order_release);
+                        totals->pipelines.fetch_add(1, std::memory_order_relaxed);
+                    }
+                } catch (...) {
+                    RecordPipelineStressFailure(state, std::current_exception());
+                }
+
+                state->finishedWorkers.fetch_add(1, std::memory_order_release);
+            });
+        }
+    }
+
+    std::uint64_t lastProgress = 0;
+    int lastFinishedWorkers = 0;
+    auto lastProgressAt = std::chrono::steady_clock::now();
+    bool timedOut = false;
+
+    while (state->finishedWorkers.load(std::memory_order_acquire) < totalWorkers) {
+        const auto now = std::chrono::steady_clock::now();
+        const std::uint64_t progress =
+            state->completedRounds.load(std::memory_order_acquire);
+        const int finishedWorkers =
+            state->finishedWorkers.load(std::memory_order_acquire);
+
+        if (progress != lastProgress || finishedWorkers != lastFinishedWorkers) {
+            lastProgress = progress;
+            lastFinishedWorkers = finishedWorkers;
+            lastProgressAt = now;
+        } else if (now - lastProgressAt >= noProgressTimeout) {
+            timedOut = true;
+            state->cancel.store(true, std::memory_order_release);
+            break;
+        }
+
+        if (now >= nextHeartbeat) {
+            PrintPipelineStressHeartbeat(
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    now - stressStart),
+                duration,
+                *totals,
+                batchNumber,
+                batchSeed,
+                lockCount,
+                workersPerLock,
+                roundsPerLock,
+                totalWorkers - finishedWorkers);
+            do {
+                nextHeartbeat += std::chrono::seconds(10);
+            } while (nextHeartbeat <= now);
+        }
+
+        if (state->failureRecorded.load(std::memory_order_acquire)) {
+            state->cancel.store(true, std::memory_order_release);
+            break;
+        }
+        std::this_thread::sleep_for(pollInterval);
+    }
+
+    if (timedOut || state->failureRecorded.load(std::memory_order_acquire)) {
+        const auto graceDeadline = std::chrono::steady_clock::now() + detachGrace;
+        while (state->finishedWorkers.load(std::memory_order_acquire) < totalWorkers &&
+               std::chrono::steady_clock::now() < graceDeadline) {
+            std::this_thread::sleep_for(pollInterval);
+        }
+    }
+
+    const bool allFinished =
+        state->finishedWorkers.load(std::memory_order_acquire) == totalWorkers;
+    for (auto& thread : threads) {
+        if (allFinished) {
+            thread.join();
+        } else {
+            // A test process cannot safely force-unlock a blocked native thread.
+            // The shared batch state keeps all captured data alive until process exit.
+            thread.detach();
+        }
+    }
+
+    if (timedOut) {
+        std::ostringstream message;
+        message << "Pipeline randomized batch made no worker progress for "
+                << std::chrono::duration_cast<std::chrono::seconds>(
+                       noProgressTimeout).count()
+                << " seconds. batch=" << batchNumber
+                << ", seed=" << batchSeed
+                << ", locks=" << lockCount
+                << ", workers/lock=" << workersPerLock
+                << ", rounds/lock=" << roundsPerLock
+                << ", progress="
+                << state->completedRounds.load(std::memory_order_relaxed)
+                << '/' << static_cast<std::uint64_t>(totalWorkers) *
+                              static_cast<std::uint64_t>(roundsPerLock)
+                << ", remaining-workers="
+                << totalWorkers - state->finishedWorkers.load(std::memory_order_relaxed);
+        throw std::runtime_error(message.str());
+    }
+
+    if (std::exception_ptr error = ReadPipelineStressFailure(state)) {
+        std::rethrow_exception(error);
+    }
+
+    for (std::size_t lockIndex = 0; lockIndex < state->locks.size(); ++lockIndex) {
+        const PipelineStressShared& shared = *state->locks[lockIndex];
+        Require(shared.probe.concurrent.load(std::memory_order_acquire) == 0 &&
+                    shared.probe.exclusive.load(std::memory_order_acquire) == 0,
+                "Pipeline stress permission probe did not return to Idle");
+        Require(shared.lock.ObservedState() == ConcurrentExclusiveLockState::Idle,
+                "Pipeline stress left a lock non-Idle");
+    }
+}
+
 } // namespace
 
 void RunPipelineSemantics() {
@@ -658,154 +1033,82 @@ void RunFullSemantics(const SemanticOptions& options) {
 void RunPipelineStress(
     std::chrono::milliseconds duration,
     const SemanticOptions& options) {
-    const int lockCount = std::max(1, options.lockInstances);
-    const int workersPerLock = std::max(2, options.workers);
-    const int maxRounds = std::max(1, options.operations);
+    const int maxLockCount = std::max(1, options.lockInstances);
+    const int maxWorkersPerLock = std::max(2, options.workers);
+    const int maxRoundsPerLock = std::max(1, options.operations);
+    const std::uint64_t baseSeed = options.seed != 0
+        ? options.seed
+        : std::random_device{}();
 
-    struct Shared {
-        ConcurrentExclusiveLock lock;
-        PermissionProbe probe;
-        std::atomic<int> epoch{0};
-    };
-    std::vector<std::unique_ptr<Shared>> locks;
-    for (int i = 0; i < lockCount; ++i) {
-        locks.push_back(std::make_unique<Shared>());
-    }
+    std::mt19937_64 seedSource(baseSeed);
+    auto totals = std::make_shared<PipelineStressTotals>();
+    const auto start = std::chrono::steady_clock::now();
+    const auto deadline = start + duration;
+    auto nextHeartbeat = start + std::chrono::seconds(10);
+    std::uint64_t batchNumber = 0;
 
-    std::atomic<bool> stop{false};
-    std::atomic<std::uint64_t> batches{0};
-    std::atomic<std::uint64_t> pipelines{0};
-    std::mutex errorMutex;
-    std::exception_ptr firstError;
-    std::vector<std::thread> threads;
+    std::cout << "Pipeline semantic time stress\n"
+              << "duration=" << FormatDuration(duration)
+              << ", max-locks=" << maxLockCount
+              << ", max-workers/lock=" << maxWorkersPerLock
+              << ", max-rounds/lock/batch=" << maxRoundsPerLock
+              << ", max-total-threads/batch="
+              << static_cast<std::uint64_t>(maxLockCount) *
+                     static_cast<std::uint64_t>(maxWorkersPerLock)
+              << ", base-seed=" << baseSeed << ".\n"
+              << "Every batch randomly chooses locks/workers/rounds up to those limits.\n"
+              << "A heartbeat is printed every 10 seconds; a batch fails after 10 minutes without worker progress.\n\n"
+              << std::flush;
 
-    std::cout << "Pipeline randomized stress\n"
-              << "duration=" << duration.count() << "ms"
-              << ", locks=" << lockCount
-              << ", workers/lock=" << workersPerLock
-              << ", max-rounds/batch=" << maxRounds << "\n";
+    while (std::chrono::steady_clock::now() < deadline) {
+        ++batchNumber;
+        const std::uint64_t batchSeed = seedSource();
+        const int lockCount = 1 + static_cast<int>(
+            seedSource() % static_cast<std::uint64_t>(maxLockCount));
+        const int workersPerLock = maxWorkersPerLock == 2
+            ? 2
+            : 2 + static_cast<int>(
+                seedSource() %
+                static_cast<std::uint64_t>(maxWorkersPerLock - 1));
+        const int roundsPerLock = 1 + static_cast<int>(
+            seedSource() % static_cast<std::uint64_t>(maxRoundsPerLock));
 
-    for (int lockIndex = 0; lockIndex < lockCount; ++lockIndex) {
-        for (int worker = 0; worker < workersPerLock; ++worker) {
-            threads.emplace_back([&, lockIndex, worker] {
-                try {
-                    Shared& shared = *locks[static_cast<std::size_t>(lockIndex)];
-                    std::uint64_t baseSeed = options.seed != 0
-                        ? options.seed
-                        : UINT64_C(0xD1B54A32D192ED03);
-                    std::mt19937_64 random(
-                        baseSeed ^
-                        (static_cast<std::uint64_t>(lockIndex + 1) << 32) ^
-                        static_cast<std::uint64_t>(worker + 1));
-                    ConcurrentExclusiveLockPipeline pipeline(shared.lock);
-
-                    while (!stop.load(std::memory_order_acquire)) {
-                        int rounds = 1 + static_cast<int>(
-                            random() % static_cast<std::uint64_t>(maxRounds));
-                        for (int round = 0; round < rounds; ++round) {
-                            switch (random() % 5u) {
-                                case 0:
-                                    pipeline.DoPipeline(
-                                        ConcurrentExclusiveLockSegment::Concurrent([&] {
-                                            shared.probe.EnterConcurrent();
-                                            shared.probe.ExitConcurrent();
-                                        }),
-                                        ConcurrentExclusiveLockSegment::ConvergeExclusive([&] {
-                                            shared.probe.EnterExclusive();
-                                            shared.probe.ExitExclusive();
-                                        }),
-                                        ConcurrentExclusiveLockSegment::ConvergeConcurrent([&] {
-                                            shared.probe.EnterConcurrent();
-                                            shared.probe.ExitConcurrent();
-                                        }));
-                                    break;
-                                case 1:
-                                    pipeline.DoPipeline(
-                                        ConcurrentExclusiveLockSegment::Exclusive([&] {
-                                            shared.probe.EnterExclusive();
-                                            shared.probe.ExitExclusive();
-                                        }),
-                                        ConcurrentExclusiveLockSegment::None([] {}),
-                                        ConcurrentExclusiveLockSegment::Concurrent([&] {
-                                            shared.probe.EnterConcurrent();
-                                            shared.probe.ExitConcurrent();
-                                        }));
-                                    break;
-                                case 2: {
-                                    int epoch = shared.epoch.fetch_add(
-                                        1, std::memory_order_relaxed) + 1;
-                                    pipeline.DoPipeline(
-                                        ConcurrentExclusiveLockSegment::Concurrent([&] {
-                                            shared.probe.EnterConcurrent();
-                                            shared.probe.ExitConcurrent();
-                                        }),
-                                        ConcurrentExclusiveLockSegment::TryApplyIDConvergeExclusive(
-                                            [&] {
-                                                shared.probe.EnterExclusive();
-                                                shared.probe.ExitExclusive();
-                                            },
-                                            epoch,
-                                            ConcurrentExclusiveLockSegment::IDType::EpochID),
-                                        ConcurrentExclusiveLockSegment::ConvergeConcurrent([&] {
-                                            shared.probe.EnterConcurrent();
-                                            shared.probe.ExitConcurrent();
-                                        }));
-                                    break;
-                                }
-                                case 3:
-                                    pipeline.DoPipeline(
-                                        ConcurrentExclusiveLockSegment::TryConcurrent([&] {
-                                            shared.probe.EnterConcurrent();
-                                            shared.probe.ExitConcurrent();
-                                        }),
-                                        ConcurrentExclusiveLockSegment::TryExclusive([&] {
-                                            shared.probe.EnterExclusive();
-                                            shared.probe.ExitExclusive();
-                                        }),
-                                        ConcurrentExclusiveLockSegment::None([] {}));
-                                    break;
-                                default:
-                                    try {
-                                        pipeline.DoPipeline(
-                                            ConcurrentExclusiveLockSegment::Exclusive([&] {
-                                                shared.probe.EnterExclusive();
-                                                shared.probe.ExitExclusive();
-                                                throw std::runtime_error("injected");
-                                            }));
-                                    } catch (const std::runtime_error&) {
-                                    }
-                                    break;
-                            }
-                            pipelines.fetch_add(1, std::memory_order_relaxed);
-                        }
-                        batches.fetch_add(1, std::memory_order_relaxed);
-                    }
-                } catch (...) {
-                    RecordFailure(
-                        std::current_exception(), errorMutex, firstError);
-                    stop.store(true, std::memory_order_release);
-                }
-            });
+        try {
+            RunPipelineStressBatch(
+                lockCount,
+                workersPerLock,
+                roundsPerLock,
+                batchSeed,
+                batchNumber,
+                start,
+                duration,
+                nextHeartbeat,
+                totals);
+        } catch (const std::exception& exception) {
+            const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - start);
+            std::cerr << "\n[FAIL] pipeline stress batch=" << batchNumber
+                      << ", seed=" << batchSeed
+                      << ", locks=" << lockCount
+                      << ", workers/lock=" << workersPerLock
+                      << ", rounds/lock=" << roundsPerLock
+                      << ", elapsed=" << FormatDuration(elapsed) << "\n"
+                      << "       " << exception.what() << "\n";
+            throw;
         }
+
+        totals->batches.fetch_add(1, std::memory_order_relaxed);
     }
 
-    std::this_thread::sleep_for(duration);
-    stop.store(true, std::memory_order_release);
-    for (auto& thread : threads) {
-        thread.join();
-    }
-    if (firstError) {
-        std::rethrow_exception(firstError);
-    }
-    for (const auto& shared : locks) {
-        Require(shared->lock.ObservedState() ==
-                    ConcurrentExclusiveLockState::Idle,
-                "Pipeline stress left a lock non-Idle");
-    }
-
-    std::cout << "batches=" << batches.load()
-              << ", pipelines=" << pipelines.load() << "\n"
-              << "PIPELINE STRESS: PASS\n";
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - start);
+    std::cout << "\n[PASS] pipeline semantic stress completed: elapsed="
+              << FormatDuration(elapsed)
+              << ", batches=" << totals->batches.load(std::memory_order_relaxed)
+              << ", pipelines=" << totals->pipelines.load(std::memory_order_relaxed)
+              << ", segments=" << totals->segments.load(std::memory_order_relaxed)
+              << ", base-seed=" << baseSeed << ".\n"
+              << std::flush;
 }
 
 void RunContentionStress(

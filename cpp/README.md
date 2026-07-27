@@ -978,11 +978,7 @@ Build the TestAndBenchmark target, then run:
 Full semantic regression:
 
 ```shell
-./build/TestAndBenchmark/TestAndBenchmark \
-  --full-semantics \
-  --lock-instances 8 \
-  --semantic-workers 4 \
-  --semantic-operations 256
+./build/TestAndBenchmark/TestAndBenchmark --full-semantics --lock-instances 8 --semantic-workers 4 --semantic-operations 256
 ```
 
 Deterministic Pipeline contracts:
@@ -994,19 +990,15 @@ Deterministic Pipeline contracts:
 Randomized Pipeline stress:
 
 ```shell
-./build/TestAndBenchmark/TestAndBenchmark \
-  --pipeline-stress 10m \
-  --lock-instances 8 \
-  --semantic-workers 8 \
-  --semantic-operations 256
+./build/TestAndBenchmark/TestAndBenchmark --pipeline-stress 10m --lock-instances 8 --semantic-workers 8 --semantic-operations 256
 ```
+
+The three semantic parameters are maxima in this mode. Every finite batch chooses a reproducible random shape within those limits, prints a heartbeat every 10 seconds, and reports a failure if one batch makes no worker progress for 10 minutes.
 
 Single-lock Exclusive contention diagnostics:
 
 ```shell
-./build/TestAndBenchmark/TestAndBenchmark \
-  --contention-stress 10m \
-  --semantic-workers 64
+./build/TestAndBenchmark/TestAndBenchmark --contention-stress 10m --semantic-workers 64
 ```
 
 The semantic suite covers:
@@ -1039,14 +1031,7 @@ Default benchmark:
 A larger memory-workload run:
 
 ```shell
-./build/TestAndBenchmark/TestAndBenchmark \
-  --lock-instances 8 \
-  --threads 8 \
-  --workload memory \
-  --operations 500000 \
-  --memory-mb 64 \
-  --read-work 32 \
-  --write-work 32
+./build/TestAndBenchmark/TestAndBenchmark --lock-instances 8 --threads 8 --workload memory --operations 500000 --memory-mb 64 --read-work 32 --write-work 32
 ```
 
 The standard comparison includes:

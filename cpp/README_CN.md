@@ -991,11 +991,7 @@ CEL 明确不提供：
 完整语义回归：
 
 ```shell
-./build/TestAndBenchmark/TestAndBenchmark \
-  --full-semantics \
-  --lock-instances 8 \
-  --semantic-workers 4 \
-  --semantic-operations 256
+./build/TestAndBenchmark/TestAndBenchmark --full-semantics --lock-instances 8 --semantic-workers 4 --semantic-operations 256
 ```
 
 固定 Pipeline 语义：
@@ -1007,19 +1003,15 @@ CEL 明确不提供：
 随机 Pipeline 压测：
 
 ```shell
-./build/TestAndBenchmark/TestAndBenchmark \
-  --pipeline-stress 10m \
-  --lock-instances 8 \
-  --semantic-workers 8 \
-  --semantic-operations 256
+./build/TestAndBenchmark/TestAndBenchmark --pipeline-stress 10m --lock-instances 8 --semantic-workers 8 --semantic-operations 256
 ```
+
+在该模式下，三个语义参数都表示上限。每个有限批次会在上限内选择可复现的随机形状；测试每 10 秒输出心跳，若某一批连续 10 分钟没有线程推进则报告失败。
 
 单锁 Exclusive 高竞争诊断：
 
 ```shell
-./build/TestAndBenchmark/TestAndBenchmark \
-  --contention-stress 10m \
-  --semantic-workers 64
+./build/TestAndBenchmark/TestAndBenchmark --contention-stress 10m --semantic-workers 64
 ```
 
 语义测试覆盖：
@@ -1052,14 +1044,7 @@ CEL 明确不提供：
 较长的内存负载：
 
 ```shell
-./build/TestAndBenchmark/TestAndBenchmark \
-  --lock-instances 8 \
-  --threads 8 \
-  --workload memory \
-  --operations 500000 \
-  --memory-mb 64 \
-  --read-work 32 \
-  --write-work 32
+./build/TestAndBenchmark/TestAndBenchmark --lock-instances 8 --threads 8 --workload memory --operations 500000 --memory-mb 64 --read-work 32 --write-work 32
 ```
 
 标准对比：

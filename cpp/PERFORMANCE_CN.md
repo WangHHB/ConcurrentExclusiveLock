@@ -98,50 +98,25 @@
 单把热点锁：
 
 ```shell
-./build/TestAndBenchmark/TestAndBenchmark \
-  --lock-instances 1 \
-  --threads 64 \
-  --workload memory \
-  --operations 100000 \
-  --memory-mb 64 \
-  --read-work 32 \
-  --write-work 32
+./build/TestAndBenchmark/TestAndBenchmark --lock-instances 1 --threads 64 --workload memory --operations 100000 --memory-mb 64 --read-work 32 --write-work 32
 ```
 
 大量独立锁：
 
 ```shell
-./build/TestAndBenchmark/TestAndBenchmark \
-  --lock-instances 64 \
-  --threads 1 \
-  --workload memory \
-  --operations 100000 \
-  --memory-mb 8 \
-  --read-work 32 \
-  --write-work 32
+./build/TestAndBenchmark/TestAndBenchmark --lock-instances 64 --threads 1 --workload memory --operations 100000 --memory-mb 8 --read-work 32 --write-work 32
 ```
 
 长跑参考命令：
 
 ```shell
-./build/TestAndBenchmark/TestAndBenchmark \
-  --lock-instances 8 \
-  --threads 8 \
-  --workload memory \
-  --operations 500000 \
-  --memory-mb 64 \
-  --read-work 32 \
-  --write-work 32
+./build/TestAndBenchmark/TestAndBenchmark --lock-instances 8 --threads 8 --workload memory --operations 500000 --memory-mb 64 --read-work 32 --write-work 32
 ```
 
 CPU 基线：
 
 ```shell
-./build/TestAndBenchmark/TestAndBenchmark \
-  --workload cpu \
-  --operations 1000000 \
-  --read-work 64 \
-  --write-work 64
+./build/TestAndBenchmark/TestAndBenchmark --workload cpu --operations 1000000 --read-work 64 --write-work 64
 ```
 
 ## 如何理解结果

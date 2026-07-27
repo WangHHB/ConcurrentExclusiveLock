@@ -53,11 +53,7 @@ Coverage includes:
 Command:
 
 ```shell
-./build/TestAndBenchmark/TestAndBenchmark \
-  --full-semantics \
-  --lock-instances 8 \
-  --semantic-workers 4 \
-  --semantic-operations 256
+./build/TestAndBenchmark/TestAndBenchmark --full-semantics --lock-instances 8 --semantic-workers 4 --semantic-operations 256
 ```
 
 `--advanced-correctness` is currently an alias of this mode.
@@ -72,9 +68,9 @@ Runs deterministic Pipeline contracts only.
 
 ### `--pipeline-stress <duration>`
 
-Runs randomized legal Pipeline templates until the requested duration expires.
+Runs finite randomized Pipeline batches until the requested duration expires. Each batch independently chooses lock count, workers per lock, and rounds per lock from `1..N` (workers use `2..N`) using a reproducible batch seed. The requested duration is checked between batches, so the final in-flight batch is allowed to finish cleanly.
 
-Each worker repeatedly combines:
+Each randomized Pipeline combines:
 
 - independent Concurrent;
 - independent Exclusive;
@@ -83,17 +79,13 @@ Each worker repeatedly combines:
 - ConvergeExclusive;
 - TryConcurrent;
 - TryExclusive;
-- EpochID-conditioned convergence;
+- ContextID/EpochID-conditioned convergence;
 - deliberately injected segment exceptions.
 
-Every protected region continuously checks that Concurrent and Exclusive business probes do not overlap. The test also verifies that every lock is Idle when the run ends.
+Every protected region continuously checks that Concurrent and Exclusive business probes do not overlap. A heartbeat reports elapsed/remaining time, completed batches, Pipelines, Segments, current seed/shape, and active workers every 10 seconds. A batch fails with reproducible diagnostics if no worker completes a round or exits for 10 minutes. The test also verifies that every permission probe and lock is Idle after each batch.
 
 ```shell
-./build/TestAndBenchmark/TestAndBenchmark \
-  --pipeline-stress 10m \
-  --lock-instances 8 \
-  --semantic-workers 8 \
-  --semantic-operations 256
+./build/TestAndBenchmark/TestAndBenchmark --pipeline-stress 10m --lock-instances 8 --semantic-workers 8 --semantic-operations 256
 ```
 
 ### `--contention-stress <duration>`
@@ -103,19 +95,17 @@ Runs many dedicated threads repeatedly acquiring ordinary Exclusive on one lock.
 It reports total acquisitions and the minimum/maximum acquisitions per thread. It is a diagnostic for practical waiter progress, not a strict-fairness test.
 
 ```shell
-./build/TestAndBenchmark/TestAndBenchmark \
-  --contention-stress 10m \
-  --semantic-workers 64
+./build/TestAndBenchmark/TestAndBenchmark --contention-stress 10m --semantic-workers 64
 ```
 
 ## Parameters
 
 | Parameter | Meaning |
 |---|---|
-| `--lock-instances` | Number of independent locks. |
-| `--semantic-workers` | Dedicated workers per lock, or total contention workers. |
-| `--semantic-operations` | Random legal-path rounds per worker; in Pipeline stress, maximum rounds generated per batch. |
-| `--semantic-seed` | Optional reproducible 64-bit seed. Decimal and `0x` forms are accepted. |
+| `--lock-instances` | Exact number of independent locks in semantic regression; maximum locks selected per Pipeline stress batch. |
+| `--semantic-workers` | Exact workers per lock in semantic regression; maximum workers per lock selected per Pipeline stress batch; total workers in contention stress. |
+| `--semantic-operations` | Exact random legal-path rounds per worker in semantic regression; maximum rounds per lock selected per Pipeline stress batch. |
+| `--semantic-seed` | Optional reproducible 64-bit seed. In Pipeline stress it is the base seed used to derive every batch seed. Decimal and `0x` forms are accepted. |
 
 Duration examples:
 
@@ -158,11 +148,7 @@ The tests enforce one or more of the following rules:
 AddressSanitizer and UndefinedBehaviorSanitizer example:
 
 ```shell
-cmake -S . -B build-asan -G Ninja \
-  -DCMAKE_BUILD_TYPE=Debug \
-  -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
-  -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
-  -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+cmake -S . -B build-asan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
 
 cmake --build build-asan
 ./build-asan/TestAndBenchmark/TestAndBenchmark --full-semantics
@@ -171,11 +157,7 @@ cmake --build build-asan
 ThreadSanitizer example:
 
 ```shell
-cmake -S . -B build-tsan -G Ninja \
-  -DCMAKE_BUILD_TYPE=Debug \
-  -DCMAKE_C_FLAGS="-fsanitize=thread -fno-omit-frame-pointer" \
-  -DCMAKE_CXX_FLAGS="-fsanitize=thread -fno-omit-frame-pointer" \
-  -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=thread"
+cmake -S . -B build-tsan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_FLAGS="-fsanitize=thread -fno-omit-frame-pointer" -DCMAKE_CXX_FLAGS="-fsanitize=thread -fno-omit-frame-pointer" -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=thread"
 
 cmake --build build-tsan
 ./build-tsan/TestAndBenchmark/TestAndBenchmark --full-semantics

@@ -1,0 +1,26 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/concurrent-exclusive-lock",
+    "crates/test-and-benchmark",
+]
+default-members = [
+    "crates/concurrent-exclusive-lock",
+    "crates/test-and-benchmark",
+]
+
+[workspace.package]
+version = "1.0.0"
+edition = "2021"
+rust-version = "1.75"
+authors = ["YiBoWang <wyb_passport@hotmail.com>"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/WangHHB/ConcurrentExclusiveLock"
+homepage = "https://github.com/WangHHB/ConcurrentExclusiveLock"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+panic = "unwind"
+strip = false

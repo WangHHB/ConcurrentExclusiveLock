@@ -142,10 +142,10 @@ Semantic and stress modes:
   --contention-stress <duration>
 
 Semantic parameters:
-  --lock-instances <N>            Default: 8
-  --semantic-workers <N>          Dedicated workers per lock. Default: 4
-  --semantic-operations <N>       Legal-path rounds or max batch rounds. Default: 256
-  --semantic-seed <N>             Reproducible random seed
+  --lock-instances <N>            Exact count for semantics; maximum per Pipeline stress batch. Default: 8
+  --semantic-workers <N>          Exact workers/lock for semantics; maximum per Pipeline stress batch. Default: 4
+  --semantic-operations <N>       Exact rounds for semantics; maximum rounds/lock per Pipeline stress batch. Default: 256
+  --semantic-seed <N>             Reproducible seed; Pipeline stress treats it as the base seed
 
 Benchmark mode is used when no semantic/stress mode is selected:
   --lock-instances <N>            Default: 1

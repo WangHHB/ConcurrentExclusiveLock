@@ -51,11 +51,7 @@ build/TestAndBenchmark/TestAndBenchmark
 - 多把独立锁上的随机合法路径。
 
 ```shell
-./build/TestAndBenchmark/TestAndBenchmark \
-  --full-semantics \
-  --lock-instances 8 \
-  --semantic-workers 4 \
-  --semantic-operations 256
+./build/TestAndBenchmark/TestAndBenchmark --full-semantics --lock-instances 8 --semantic-workers 4 --semantic-operations 256
 ```
 
 `--advanced-correctness` 当前是该模式的别名。
@@ -70,9 +66,9 @@ build/TestAndBenchmark/TestAndBenchmark
 
 ### `--pipeline-stress <duration>`
 
-在指定时长内反复执行随机合法 Pipeline 模板。
+在指定时长内反复执行有限的随机 Pipeline 批次。每批都会根据可复现的批次 seed，在参数上限内重新随机选择锁数量、每锁线程数和每锁轮数；时长在批次之间检查，因此到期时会允许当前批次正常收尾。
 
-组合包含：
+每条随机 Pipeline 的组合包含：
 
 - 独立 Concurrent；
 - 独立 Exclusive；
@@ -81,17 +77,13 @@ build/TestAndBenchmark/TestAndBenchmark
 - ConvergeExclusive；
 - TryConcurrent；
 - TryExclusive；
-- EpochID 条件收敛；
+- ContextID/EpochID 条件收敛；
 - 故意注入的 Segment 异常。
 
-每个受保护业务区都会持续检查 Concurrent 和 Exclusive 业务探针不能重叠；结束时还会检查所有锁都回到 Idle。
+每个受保护业务区都会持续检查 Concurrent 和 Exclusive 业务探针不能重叠。测试每 10 秒输出一次心跳，包含已用/剩余时间、批次数、Pipeline 数、Segment 数、当前 seed/形状和活动线程数；若某批连续 10 分钟没有任何线程完成一轮或退出，则以可复现参数报告失败。每批结束后还会检查权限探针和所有锁都回到 Idle。
 
 ```shell
-./build/TestAndBenchmark/TestAndBenchmark \
-  --pipeline-stress 10m \
-  --lock-instances 8 \
-  --semantic-workers 8 \
-  --semantic-operations 256
+./build/TestAndBenchmark/TestAndBenchmark --pipeline-stress 10m --lock-instances 8 --semantic-workers 8 --semantic-operations 256
 ```
 
 ### `--contention-stress <duration>`
@@ -101,19 +93,17 @@ build/TestAndBenchmark/TestAndBenchmark
 输出总获取次数和每线程最小/最大获取次数。它用于观察实际等待推进情况，不是严格公平性测试。
 
 ```shell
-./build/TestAndBenchmark/TestAndBenchmark \
-  --contention-stress 10m \
-  --semantic-workers 64
+./build/TestAndBenchmark/TestAndBenchmark --contention-stress 10m --semantic-workers 64
 ```
 
 ## 参数
 
 | 参数 | 含义 |
 |---|---|
-| `--lock-instances` | 独立锁数量。 |
-| `--semantic-workers` | 每把锁专用线程数；高竞争模式下表示总线程数。 |
-| `--semantic-operations` | 每线程随机合法路径轮数；Pipeline 压测中表示每批最大轮数。 |
-| `--semantic-seed` | 可选的 64 位复现种子，支持十进制和 `0x`。 |
+| `--lock-instances` | 完整语义回归中的固定锁数量；Pipeline 压测中每批随机选择的锁数量上限。 |
+| `--semantic-workers` | 完整语义回归中的固定每锁线程数；Pipeline 压测中每批每锁线程数上限；高竞争模式下表示总线程数。 |
+| `--semantic-operations` | 完整语义回归中的固定每线程轮数；Pipeline 压测中每批每锁轮数上限。 |
+| `--semantic-seed` | 可选的 64 位复现种子；Pipeline 压测将其作为生成每批 seed 的基础 seed。支持十进制和 `0x`。 |
 
 时长示例：
 
@@ -154,11 +144,7 @@ build/TestAndBenchmark/TestAndBenchmark
 AddressSanitizer + UndefinedBehaviorSanitizer：
 
 ```shell
-cmake -S . -B build-asan -G Ninja \
-  -DCMAKE_BUILD_TYPE=Debug \
-  -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
-  -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
-  -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+cmake -S . -B build-asan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
 
 cmake --build build-asan
 ./build-asan/TestAndBenchmark/TestAndBenchmark --full-semantics
@@ -167,11 +153,7 @@ cmake --build build-asan
 ThreadSanitizer：
 
 ```shell
-cmake -S . -B build-tsan -G Ninja \
-  -DCMAKE_BUILD_TYPE=Debug \
-  -DCMAKE_C_FLAGS="-fsanitize=thread -fno-omit-frame-pointer" \
-  -DCMAKE_CXX_FLAGS="-fsanitize=thread -fno-omit-frame-pointer" \
-  -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=thread"
+cmake -S . -B build-tsan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_FLAGS="-fsanitize=thread -fno-omit-frame-pointer" -DCMAKE_CXX_FLAGS="-fsanitize=thread -fno-omit-frame-pointer" -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=thread"
 
 cmake --build build-tsan
 ./build-tsan/TestAndBenchmark/TestAndBenchmark --full-semantics

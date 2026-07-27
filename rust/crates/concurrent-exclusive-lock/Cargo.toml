@@ -1,0 +1,18 @@
+[package]
+name = "concurrent-exclusive-lock"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "A high-performance non-recursive Concurrent/Exclusive permission lock with preemptive Exclusive acquisition and in-place upgrade/downgrade"
+keywords = ["concurrency", "synchronization", "lock", "rwlock", "pipeline"]
+categories = ["concurrency"]
+readme = "README.md"
+include = ["src/**", "Cargo.toml", "README.md", "LICENSE-APACHE-2.0", "LICENSE-MIT"]
+
+[lib]
+name = "concurrent_exclusive_lock"
+path = "src/lib.rs"
