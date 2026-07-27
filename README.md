@@ -16,7 +16,7 @@
 - [C#](./csharp) — Reference implementation
 - [Java](./java/README.md) — Java 17+, available on [Maven Central](https://central.sonatype.com/artifact/io.github.wanghhb/concurrent-exclusive-lock)
 - [C++](./cpp/README.md) — The core lock is implemented in C, with C++ wrappers for Scope and Pipeline.
-- [Rust](./rust/README_CN.md) — Not tested yet.
+- [Rust](./rust/README.md) — Not tested yet.
 
 
 ## Installation
