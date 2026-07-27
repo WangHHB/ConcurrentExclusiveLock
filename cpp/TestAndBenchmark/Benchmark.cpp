@@ -3,10 +3,10 @@
 #include "ConcurrentExclusiveLock.hpp"
 #include "Workloads.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
-#include <ctime>
 #include <iomanip>
 #include <iostream>
 #include <memory>
@@ -16,11 +16,67 @@
 #include <thread>
 #include <vector>
 
+#if defined(_WIN32)
+#  ifndef NOMINMAX
+#    define NOMINMAX
+#  endif
+#  include <windows.h>
+#else
+#  include <ctime>
+#endif
+
 namespace celtest {
 namespace {
 
 using Clock = std::chrono::steady_clock;
 using intomic::ConcurrentExclusiveLock;
+
+double CurrentProcessCpuSeconds() noexcept {
+#if defined(_WIN32)
+    FILETIME creationTime{};
+    FILETIME exitTime{};
+    FILETIME kernelTime{};
+    FILETIME userTime{};
+    if (!GetProcessTimes(
+            GetCurrentProcess(),
+            &creationTime,
+            &exitTime,
+            &kernelTime,
+            &userTime)) {
+        return 0.0;
+    }
+
+    ULARGE_INTEGER kernel{};
+    kernel.LowPart = kernelTime.dwLowDateTime;
+    kernel.HighPart = kernelTime.dwHighDateTime;
+
+    ULARGE_INTEGER user{};
+    user.LowPart = userTime.dwLowDateTime;
+    user.HighPart = userTime.dwHighDateTime;
+
+    constexpr double FileTimeTicksPerSecond = 10000000.0;
+    return static_cast<double>(kernel.QuadPart + user.QuadPart)
+        / FileTimeTicksPerSecond;
+#else
+    const std::clock_t value = std::clock();
+    if (value == static_cast<std::clock_t>(-1)) {
+        return 0.0;
+    }
+    return static_cast<double>(value)
+        / static_cast<double>(CLOCKS_PER_SEC);
+#endif
+}
+
+unsigned LogicalProcessorCount() noexcept {
+#if defined(_WIN32)
+    const DWORD activeProcessors =
+        GetActiveProcessorCount(ALL_PROCESSOR_GROUPS);
+    if (activeProcessors != 0) {
+        return static_cast<unsigned>(activeProcessors);
+    }
+#endif
+    return std::max(1u, std::thread::hardware_concurrency());
+}
 
 class StartGate {
 public:
@@ -197,19 +253,18 @@ Result RunOne(
     }
 
     gate.Wait();
-    std::clock_t cpuStart = std::clock();
+    const double cpuStart = CurrentProcessCpuSeconds();
     auto start = Clock::now();
     for (auto& thread : threads) {
         thread.join();
     }
     auto finish = Clock::now();
-    std::clock_t cpuFinish = std::clock();
+    const double cpuFinish = CurrentProcessCpuSeconds();
 
     Result result;
     result.elapsedSeconds = std::chrono::duration<double>(finish - start).count();
-    const double processCpuSeconds = static_cast<double>(cpuFinish - cpuStart)
-        / static_cast<double>(CLOCKS_PER_SEC);
-    const unsigned hardware = std::max(1u, std::thread::hardware_concurrency());
+    const double processCpuSeconds = std::max(0.0, cpuFinish - cpuStart);
+    const unsigned hardware = LogicalProcessorCount();
     result.cpuPercent = result.elapsedSeconds > 0
         ? processCpuSeconds / result.elapsedSeconds
             / static_cast<double>(hardware) * 100.0
@@ -249,7 +304,7 @@ std::string Hex(std::uint64_t value) {
 void RunBenchmark(const BenchmarkOptions& options) {
     int threadsPerLock = options.threadsPerLock;
     if (threadsPerLock <= 0) {
-        unsigned hardware = std::max(1u, std::thread::hardware_concurrency());
+        const unsigned hardware = LogicalProcessorCount();
         threadsPerLock = std::max(
             1,
             static_cast<int>(hardware) / std::max(1, options.lockInstances));
@@ -262,7 +317,7 @@ void RunBenchmark(const BenchmarkOptions& options) {
         * static_cast<std::uint64_t>(options.operationsPerThread);
 
     std::cout << "ConcurrentExclusiveLock C/C++ benchmark\n"
-              << "CPU=" << std::thread::hardware_concurrency() << "\n"
+              << "CPU=" << LogicalProcessorCount() << "\n"
               << "lock-instances=" << options.lockInstances
               << ", threads/lock=" << threadsPerLock
               << ", total-threads=" << totalThreads
