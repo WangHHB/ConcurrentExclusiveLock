@@ -1,4 +1,4 @@
-# TestResults
+# TestBenchmarkResults
 
 `final/` contains the authoritative validation outputs for this package.
 

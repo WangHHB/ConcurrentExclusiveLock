@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 P=$(cd "$(dirname "$0")/../.." && pwd)
-F="$P/TestResults/final"
+F="$P/TestBenchmarkResults/final"
 export PATH=/opt/rust-1.75/bin:$PATH
 export RUST_BACKTRACE=0
 cd "$P"

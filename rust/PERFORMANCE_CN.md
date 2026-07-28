@@ -11,7 +11,7 @@
 - `ConcurrentExclusiveLock`（CEL）；
 - `CEL(ExclusiveOnly)`，即所有操作均走 CEL Exclusive，用作纯互斥基线。
 
-`parking_lot` 及其依赖已经放入 `vendor/`，测试程序可以在 Cargo registry 为空时离线构建。
+`parking_lot` 及其依赖已压缩为 `parking_lot-vendor.zip`；构建脚本按需解压到 `vendor/`，测试程序仍可在 Cargo registry 为空时离线构建。
 
 ## 2. 公平比较条件
 
@@ -74,7 +74,7 @@ Build: --release, opt-level=3, thin LTO, codegen-units=1
 三轮最小值与最大值保存在：
 
 ```text
-TestResults/final/benchmarks/single_16t_w64_median.csv
+TestBenchmarkResults/final/benchmarks/single_16t_w64_median.csv
 ```
 
 ## 5. 64 线程高争用单锁
@@ -154,7 +154,7 @@ TestResults/final/benchmarks/single_16t_w64_median.csv
 该组共有 128 个 OS 线程，而虚拟机约有 4 个可用 CPU，且每轮持续时间较短，调度噪声明显。结果完整保留在：
 
 ```text
-TestResults/final/benchmarks/multi_64x2_w64.log
+TestBenchmarkResults/final/benchmarks/multi_64x2_w64.log
 ```
 
 这组用于检查大量锁实例能否同时完成、状态是否一致，不作为锁吞吐排名的主要依据。
@@ -166,16 +166,16 @@ TestResults/final/benchmarks/multi_64x2_w64.log
 原始日志：
 
 ```text
-TestResults/final/benchmarks/single_1t_w64.log
+TestBenchmarkResults/final/benchmarks/single_1t_w64.log
 ```
 
 ## 9. 原始数据
 
 ```text
-TestResults/final/benchmarks/all_results.csv
-TestResults/final/benchmarks/all_results.json
-TestResults/final/benchmarks/single_16t_w64_median.csv
-TestResults/final/benchmarks/*.log
+TestBenchmarkResults/final/benchmarks/all_results.csv
+TestBenchmarkResults/final/benchmarks/all_results.json
+TestBenchmarkResults/final/benchmarks/single_16t_w64_median.csv
+TestBenchmarkResults/final/benchmarks/*.log
 ```
 
 所有表格均由上述日志自动解析生成，没有手工改写数字。

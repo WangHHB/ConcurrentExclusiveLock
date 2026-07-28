@@ -2,7 +2,7 @@
 set -euo pipefail
 P="$(cd "$(dirname "$0")/../../.." && pwd)"
 B="$P/target/release/cel-test-and-benchmark"
-D="$P/TestResults/final/benchmarks"
+D="$P/TestBenchmarkResults/final/benchmarks"
 run() {
   local name="$1"; shift
   echo "START $name $(date -u +%FT%TZ)" | tee -a "$D/progress.log"

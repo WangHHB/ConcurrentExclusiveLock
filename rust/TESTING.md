@@ -18,7 +18,7 @@ On Windows:
 .\run-tests.ps1
 ```
 
-The workspace builds with `--offline`; parking_lot and its required dependencies are under `vendor/`.
+The workspace builds with `--offline`; `parking_lot-vendor.zip` contains parking_lot and its required dependencies, and the supplied scripts extract `vendor/` on demand.
 
 ## Cargo tests
 
@@ -86,4 +86,4 @@ Pipeline semantics
 benchmark state-hash equality
 ```
 
-Raw logs are retained under `TestResults/final/`.
+Raw logs are retained under `TestBenchmarkResults/final/`.

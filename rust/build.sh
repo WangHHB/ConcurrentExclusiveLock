@@ -1,6 +1,7 @@
 #!/usr/bin/env sh
 set -eu
 cd "$(dirname "$0")"
+./prepare-vendor.sh
 
 cargo fmt --all
 cargo fmt --all -- --check

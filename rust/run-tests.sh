@@ -1,6 +1,7 @@
 #!/usr/bin/env sh
 set -eu
 cd "$(dirname "$0")"
+./prepare-vendor.sh
 B=./target/release/cel-test-and-benchmark
 
 cargo test --release --workspace --offline

@@ -1,7 +1,0 @@
-getcontext
-makecontext
-mcontext_t
-setcontext
-swapcontext
-sysctl
-ucontext_t

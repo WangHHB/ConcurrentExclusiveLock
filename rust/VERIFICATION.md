@@ -37,7 +37,7 @@ Passed:
 - 60-second Endurance run: 58 deterministic batches;
 - final Idle-state checks after every semantic/stress mode.
 
-Authoritative logs are under `TestResults/final/`.
+Authoritative logs are under `TestBenchmarkResults/final/`.
 
 ## Benchmark validation
 
@@ -51,11 +51,11 @@ Ten complete benchmark configurations were executed, covering:
 - all six read/write ratios;
 - `std::sync::Mutex`, `std::sync::RwLock`, `parking_lot::Mutex`, `parking_lot::RwLock`, CEL, and CEL(ExclusiveOnly).
 
-Every strategy/scenario completed with the same final state hash. Raw logs, CSV, JSON, and the repeated-run median table are under `TestResults/final/benchmarks/`.
+Every strategy/scenario completed with the same final state hash. Raw logs, CSV, JSON, and the repeated-run median table are under `TestBenchmarkResults/final/benchmarks/`.
 
 ## Offline dependency validation
 
-The core crate remains dependency-free. The benchmark's `parking_lot 0.12.5` dependency and required crates are included under `vendor/`. A clean Cargo lockfile was generated with path sources, and the complete workspace builds with `--offline`, including a fresh Release build with an empty `CARGO_HOME`.
+The core crate remains dependency-free. The benchmark's `parking_lot 0.12.5` dependency and required crates are stored in `parking_lot-vendor.zip` and extracted to `vendor/` on demand. A clean Cargo lockfile was generated with path sources, and the complete workspace builds with `--offline`, including a fresh Release build with an empty `CARGO_HOME`.
 
 ## Windows executable status
 
@@ -66,6 +66,6 @@ Rust target: x86_64-pc-windows-gnu
 MinGW linker: x86_64-w64-mingw32-gcc
 ```
 
-The attempted cross-check fails before compiling project code because the Windows Rust standard library (`core`, `alloc`, and `compiler_builtins`) is not installed. The exact output is retained in `TestResults/final/windows-cross-check.log`.
+The attempted cross-check fails before compiling project code because the Windows Rust standard library (`core`, `alloc`, and `compiler_builtins`) is not installed. The exact output is retained in `TestBenchmarkResults/final/windows-cross-check.log`.
 
 Therefore this package includes a verified Linux x64 executable. A Windows `.exe` must be produced by running `build-windows.ps1` on Windows or by installing the missing cross target and linker.

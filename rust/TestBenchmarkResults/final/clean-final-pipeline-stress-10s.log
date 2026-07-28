@@ -1,0 +1,12 @@
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=10s, locks=1, workers/lock=4, seed=0x6A09E667F3BCC909
+progress: elapsed=1.0s, rounds=1982464, callbacks=10458709
+progress: elapsed=2.0s, rounds=3403776, callbacks=18161606
+progress: elapsed=3.0s, rounds=4780032, callbacks=25738824
+progress: elapsed=4.0s, rounds=6762496, callbacks=36326996
+progress: elapsed=5.0s, rounds=8781824, callbacks=47175990
+progress: elapsed=6.0s, rounds=10788864, callbacks=57856722
+progress: elapsed=7.0s, rounds=12832768, callbacks=68722050
+progress: elapsed=8.0s, rounds=14807040, callbacks=79306931
+progress: elapsed=9.0s, rounds=16838656, callbacks=90263946
+PASS: 18875156 randomized Pipeline rounds, 101210561 validated callbacks

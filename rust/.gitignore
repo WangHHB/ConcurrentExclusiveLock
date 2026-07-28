@@ -1,9 +1,11 @@
 /target/
-/TestResults/*.txt
-/TestResults/*.log
+/TestBenchmarkResults/*.txt
+/TestBenchmarkResults/*.log
 *.pdb
 *.ilk
 *.exe
 .DS_Store
 .idea/
 .vscode/
+
+/vendor/

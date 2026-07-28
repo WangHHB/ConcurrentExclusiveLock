@@ -36,7 +36,7 @@ Windows PowerShell：
 .\run-tests.ps1
 ```
 
-所有 Cargo 命令默认带 `--offline`。`parking_lot` 和依赖已经放入 `vendor/`。
+所有 Cargo 命令默认带 `--offline`。`parking_lot-vendor.zip` 包含 parking_lot 和全部所需依赖，脚本会按需解压到 `vendor/`。
 
 ## 3. Cargo 测试
 
@@ -101,7 +101,7 @@ cargo test --release --workspace --offline
 长测每隔最多 60 秒打印累计轮次和回调数。正式结果保存在：
 
 ```text
-TestResults/final/pipeline-stress-30m.log
+TestBenchmarkResults/final/pipeline-stress-30m.log
 ```
 
 本次正式 30 分钟实测通过：
@@ -168,4 +168,4 @@ cargo test --release --workspace --offline
 性能测试与状态哈希校验
 ```
 
-原始日志统一保存在 `TestResults/final/`。
+原始日志统一保存在 `TestBenchmarkResults/final/`。

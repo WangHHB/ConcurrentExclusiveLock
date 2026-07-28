@@ -9,14 +9,19 @@
 [![NuGet Downloads](https://img.shields.io/nuget/dt/ConcurrentExclusiveLock.svg)](https://www.nuget.org/packages/ConcurrentExclusiveLock/)
 [![License](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](#许可证)
 
-**ConcurrentExclusiveLock (CEL)** 是一个面向细粒度状态对象的 Concurrent / Exclusive 同步协议。
+**ConcurrentExclusiveLock（CEL） 是一套面向细粒度状态对象的 Concurrent / Exclusive 同步协议。所有已实现的语言版本均以 C# 版本为语义基准，完整提供抢占式 Exclusive、Concurrent 原地升级、Exclusive 原地降级，以及核心锁、Scope 和 Pipeline 三层封装；其中 Pipeline 可在不中断同步上下文的情况下，统一编排多阶段读写、升降级、条件收敛与异常释放，避免复杂并发控制逻辑分散在业务代码中。
+
+据目前公开可查的实现，CEL 是唯一能够在不区分特殊读写模式、无需提前声明升级意图、也无需预先申请升级权限的情况下，直接完成原地升级与原地降级的读写同步实现；其升降级路径设计简洁而巧妙，以极少的状态转换完成了连续、对称且高效的权限切换。
+
+所有语言版本均经过性能基准测试和长期压力测试。无论单锁高竞争还是多锁并行运行，CEL 在读多写少、写入及时性要求高以及频繁升降级等优势场景中，均能明显领先对应平台的系统原生锁；在写密集等非优势场景中，性能通常仍与原生锁保持接近，额外开销较小。
+
 
 ## 语言实现
 
 - [C#](./csharp) — 参考实现
 - [Java](./java/README_CN.md) — 支持 Java 17+，已发布到 [Maven Central](https://central.sonatype.com/artifact/io.github.wanghhb/concurrent-exclusive-lock)
 - [C++](./cpp/README_CN.md) — 核心锁使用 C 实现，C++ 提供 Scope 和 Pipeline 封装。
-- [Rust](./rust/README_CN.md) — 尚未测试。
+- [Rust](./rust/README_CN.md)
 
 
 ## 安装

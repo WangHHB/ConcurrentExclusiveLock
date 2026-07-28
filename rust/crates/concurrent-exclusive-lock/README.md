@@ -372,7 +372,7 @@ On conditional-upgrade failure, calling `release_concurrent()` again is an error
 
 ## Scope: RAII release management
 
-[`ConcurrentExclusiveLockScope`](crates/concurrent-exclusive-lock/src/scope.rs) is the Rust RAII layer corresponding to C# `IDisposable` and Java `AutoCloseable` convenience wrappers.
+[`ConcurrentExclusiveLockScope`](src/scope.rs) is the Rust RAII layer corresponding to C# `IDisposable` and Java `AutoCloseable` convenience wrappers.
 
 ```rust
 use concurrent_exclusive_lock::{
@@ -585,7 +585,7 @@ cargo run --release --offline -p cel-test-and-benchmark -- `
 
 The formal 30-minute Pipeline stress completed `2,732,232,429` rounds and `14,775,380,351` validated callbacks. The 60-second Exclusive contention run completed `401,719,852` acquisitions with progress from all 32 workers.
 
-See [`TESTING.md`](TESTING.md) for details.
+See [`TESTING.md`](../../TESTING.md) for details.
 
 ---
 
@@ -646,7 +646,7 @@ Key metrics:
 
 Draw conclusions from repeated Release runs on the target machine. Do not compare raw numbers across different language runtimes as though they were the same benchmark environment.
 
-See [`PERFORMANCE.md`](PERFORMANCE.md).
+See [`PERFORMANCE.md`](../../PERFORMANCE.md).
 
 ---
 

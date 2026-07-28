@@ -40,7 +40,8 @@ rust/
 ├─ crates/
 │  ├─ concurrent-exclusive-lock/   # 核心库、Scope、Pipeline
 │  └─ test-and-benchmark/           # 语义测试、压力测试、性能对比
-├─ vendor/                          # parking_lot 及离线依赖，仅供评测程序使用
+├─ parking_lot-vendor.zip           # 压缩后的 parking_lot 离线评测依赖
+├─ prepare-vendor.sh/.ps1           # 构建时按需解压 vendor/
 ├─ TestBenchmarkResults/           # 原始测试日志与 CSV/JSON
 ├─ Artifacts/                       # 已构建可执行文件
 ├─ Cargo.toml                       # Cargo Workspace
@@ -56,6 +57,8 @@ rust/
 ├─ run-tests.ps1
 └─ run-benchmark.ps1
 ```
+
+> 构建和测试脚本会自动解压 `parking_lot-vendor.zip`。若要直接运行 Cargo，请先在 Linux/macOS 执行 `./prepare-vendor.sh`，或在 Windows 执行 `.\prepare-vendor.ps1`。
 
 ---
 
@@ -179,7 +182,7 @@ Windows 用户执行 `build-windows.ps1` 后，脚本会把 `.exe` 复制到：
 Artifacts\windows-x64\cel-test-and-benchmark.exe
 ```
 
-核心库 crate 本身没有第三方依赖。内置评测依赖的版本与许可证见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。评测程序依赖 `parking_lot 0.12.5`，其源码及所需依赖已放入 `vendor/`，因此整个 Workspace 仍可在 Cargo registry 为空时使用 `--offline` 构建。
+核心库 crate 本身没有第三方依赖。内置评测依赖的版本与许可证见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。评测程序依赖 `parking_lot 0.12.5`，其源码及所需依赖已压缩为 `parking_lot-vendor.zip`。随附脚本会在构建时按需解压到 `vendor/`，因此整个 Workspace 仍可在 Cargo registry 为空时使用 `--offline` 构建。
 
 ---
 
@@ -689,6 +692,8 @@ Available CPU: 约 4
 
 16 线程和 64 线程都属于超额订阅，因此这些数字适合比较**同一受限环境中的相对行为**，不能直接视为 Windows、裸机 Linux、物理 64 核、多 NUMA 服务器或其他 Rust 版本上的固定排名。
 
+**低写延迟结果：**在本次 64 线程超额订阅测试中，CEL 在列出的 99.5/0.5、90/10、50/50 和 0/100 场景里都取得了最低或接近最低的平均写请求端到端延迟；其中前三个混合比例的优势较明显。该指标包含排队、操作系统调度、锁获取、写 Work 和释放，只能说明本测试环境中的写请求推进速度，不能等同于锁内部指令延迟，也不能代表 P95/P99 尾延迟。
+
 所有 README 数据都直接来自：
 
 ```text
@@ -938,6 +943,7 @@ TestBenchmarkResults/final/pipeline-semantics.log
 - `parking_lot::RwLock` 是必须保留的高性能基线，但当前 Linux/KVM 结果不能代表 Windows、裸机 Linux或不同 Rust 版本；
 - 多锁测试没有统一赢家，锁实例数、每锁线程数、内存带宽和调度都会改变总吞吐；
 - 吞吐和写延迟必须同时观察，较高吞吐不保证每个写请求延迟最低；
+- 在本次 64 线程超额订阅测试中，CEL 的平均写请求端到端延迟在列出的四种比例中均为最低或接近最低，99.5/0.5、90/10、50/50 的优势尤其明显；该结论不包含 P95/P99，也不能外推到其他平台；
 - CEL 的原地升级、降级、ContextID/EpochID 和 Pipeline 是普通 `RwLock` 不直接提供的语义能力。性能表只能回答执行成本，不能替代功能层面的选型。
 
 完整 360 行结果和原始数据参阅 [`PERFORMANCE_CN.md`](PERFORMANCE_CN.md) 以及：

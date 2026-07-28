@@ -40,7 +40,8 @@ rust/
 ├─ crates/
 │  ├─ concurrent-exclusive-lock/   # Core lock, Scope, Pipeline
 │  └─ test-and-benchmark/           # Semantic tests, stress tests, benchmark
-├─ vendor/                          # offline parking_lot benchmark dependencies
+├─ parking_lot-vendor.zip           # compressed offline parking_lot benchmark dependencies
+├─ prepare-vendor.sh/.ps1           # extracts vendor/ only when building
 ├─ TestBenchmarkResults/           # raw logs and CSV/JSON
 ├─ Artifacts/                       # prebuilt executables
 ├─ Cargo.toml                       # Cargo workspace
@@ -56,6 +57,8 @@ rust/
 ├─ run-tests.ps1
 └─ run-benchmark.ps1
 ```
+
+> Build/test scripts automatically extract `parking_lot-vendor.zip`. Before running Cargo directly, run `./prepare-vendor.sh` on Linux/macOS or `.\prepare-vendor.ps1` on Windows.
 
 ---
 
@@ -173,7 +176,7 @@ Running `build-windows.ps1` on Windows copies the generated executable to:
 Artifacts\windows-x64\cel-test-and-benchmark.exe
 ```
 
-The core library crate has no third-party dependencies. Vendored benchmark dependency versions and licenses are listed in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). The benchmark uses `parking_lot 0.12.5`; its source and required dependencies are included under `vendor/`, so the complete workspace still builds with an empty Cargo registry cache by using `--offline`.
+The core library crate has no third-party dependencies. Vendored benchmark dependency versions and licenses are listed in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). The benchmark uses `parking_lot 0.12.5`; its source and required dependencies are stored in `parking_lot-vendor.zip`. The supplied scripts extract `vendor/` on demand, so the complete workspace still builds with an empty Cargo registry cache by using `--offline`.
 
 ---
 
@@ -639,6 +642,8 @@ The formal data set covers 1, 4, 16, and 64 threads; single-lock and multi-lock 
 
 The environment was Rust 1.75.0 on Linux 6.12 x86_64 in KVM, with about four processors reported by `available_parallelism()`. The 16- and 64-thread cases are oversubscribed. These numbers compare relative behavior in the same constrained environment; they are not fixed rankings for Windows, bare metal, NUMA servers, or other Rust versions.
 
+**Low write-latency result:** in the 64-thread oversubscribed run, CEL recorded the lowest or nearly lowest average end-to-end write-request latency in the reported 99.5/0.5, 90/10, 50/50, and 0/100 scenarios, with a clear advantage in the first three mixed ratios. The metric includes queueing, operating-system scheduling, lock acquisition, write work, and release. It is not an internal lock-instruction latency measurement and does not report P95/P99 tail latency.
+
 ### Complete formal benchmark matrix
 
 All README numbers come directly from `TestBenchmarkResults/final/benchmarks/`; they are not hand-picked samples. The formal run contained these 10 configurations:
@@ -839,6 +844,7 @@ The cautious conclusions from this environment are:
 - CEL does not inherently beat a Mutex in write-heavy or pure-write workloads. As the write ratio grows, a simpler Mutex can be equally fast or faster.
 - parking_lot is an essential high-performance baseline, but its local result must not be generalized across platforms.
 - Throughput and write latency must be considered together.
+- In the 64-thread oversubscribed run, CEL had the lowest or nearly lowest average end-to-end write-request latency in all four reported ratios, with the clearest advantage at 99.5/0.5, 90/10, and 50/50. This does not include P95/P99 and must not be generalized across platforms.
 - CEL also provides in-place upgrade/downgrade, ContextID/EpochID, and Pipeline semantics that ordinary RwLocks do not directly provide. Performance tables measure cost; they do not replace functional selection criteria.
 
 The complete 360-row data set and raw results are available in [`PERFORMANCE.md`](PERFORMANCE.md) and:

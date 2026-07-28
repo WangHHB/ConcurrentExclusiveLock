@@ -11,7 +11,7 @@
 
 All strategies receive fresh lock/work instances, the same deterministic read/write sequence, the same shared-memory workload, and a final state-hash equality check. `avg write ns` is end-to-end write-request latency including waiting, scheduling, work, and release.
 
-The `parking_lot` source and required dependencies are vendored under `vendor/`, so the benchmark builds offline.
+The `parking_lot` source and required dependencies are stored in `parking_lot-vendor.zip`; the supplied scripts extract `vendor/` on demand, so the benchmark builds offline.
 
 ## Environment
 
@@ -68,15 +68,15 @@ CEL was close to both RwLocks for pure reads, substantially ahead at 90/10 in th
 
 ## Multi-lock tests
 
-The complete 8 locks × 4 threads and 64 locks × 2 threads results are retained in `TestResults/final/benchmarks/`. The 64×2 case uses 128 OS threads on roughly four available CPUs and is treated as a completion/state-consistency stress case rather than a stable throughput ranking.
+The complete 8 locks × 4 threads and 64 locks × 2 threads results are retained in `TestBenchmarkResults/final/benchmarks/`. The 64×2 case uses 128 OS threads on roughly four available CPUs and is treated as a completion/state-consistency stress case rather than a stable throughput ranking.
 
 ## Raw data
 
 ```text
-TestResults/final/benchmarks/all_results.csv
-TestResults/final/benchmarks/all_results.json
-TestResults/final/benchmarks/single_16t_w64_median.csv
-TestResults/final/benchmarks/*.log
+TestBenchmarkResults/final/benchmarks/all_results.csv
+TestBenchmarkResults/final/benchmarks/all_results.json
+TestBenchmarkResults/final/benchmarks/single_16t_w64_median.csv
+TestBenchmarkResults/final/benchmarks/*.log
 ```
 
 Performance depends on OS, runtime, CPU topology, thread count, lock count, critical-region duration, read/write ratio, oversubscription, and background load. Strategies run in a fixed order; the primary 16-thread configuration was repeated three times and reports medians, while extension configurations are single runs. Re-run the included executable on the target system before making deployment decisions.

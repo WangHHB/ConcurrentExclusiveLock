@@ -6,6 +6,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
+& .\prepare-vendor.ps1
 
 function Find-Cargo {
     $command = Get-Command cargo -ErrorAction SilentlyContinue
