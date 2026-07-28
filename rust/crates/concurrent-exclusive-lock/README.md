@@ -26,7 +26,7 @@ The port follows these rules:
 
 1. C# remains the protocol reference implementation.
 2. Rust does not redesign the access model.
-3. The core lock uses direct object methods and does not return an ownership token.
+3. Concurrent acquisition uses direct object methods and does not return a release credential. Exclusive acquisition returns an `ExclusiveGuard` because Rust's standard `Mutex` releases ownership through `MutexGuard` lifetime management.
 4. A Concurrent ID is an entry number for the current uninterrupted concurrent round, not a release credential.
 5. No ticket queue or strict FIFO layer is added.
 6. Scope manages lifetime only and does not alter the core protocol.
@@ -372,7 +372,7 @@ On conditional-upgrade failure, calling `release_concurrent()` again is an error
 
 ## Scope: RAII release management
 
-[`ConcurrentExclusiveLockScope`](src/scope.rs) is the Rust RAII layer corresponding to C# `IDisposable` and Java `AutoCloseable` convenience wrappers.
+[`ConcurrentExclusiveLockScope`](https://github.com/WangHHB/ConcurrentExclusiveLock/blob/main/rust/crates/concurrent-exclusive-lock/src/scope.rs) is the Rust RAII layer corresponding to C# `IDisposable` and Java `AutoCloseable` convenience wrappers.
 
 ```rust
 use concurrent_exclusive_lock::{
@@ -585,7 +585,7 @@ cargo run --release --offline -p cel-test-and-benchmark -- `
 
 The formal 30-minute Pipeline stress completed `2,732,232,429` rounds and `14,775,380,351` validated callbacks. The 60-second Exclusive contention run completed `401,719,852` acquisitions with progress from all 32 workers.
 
-See [`TESTING.md`](../../TESTING.md) for details.
+See [`TESTING.md`](https://github.com/WangHHB/ConcurrentExclusiveLock/blob/main/rust/TESTING.md) for details.
 
 ---
 
@@ -594,7 +594,9 @@ See [`TESTING.md`](../../TESTING.md) for details.
 The included benchmark uses the random shared-memory Work from the C# project and compares:
 
 - `std::sync::Mutex`;
+- `parking_lot::Mutex` 0.12.5;
 - `std::sync::RwLock`;
+- `parking_lot::RwLock` 0.12.5;
 - `ConcurrentExclusiveLock`;
 - `CEL(ExclusiveOnly)`.
 
@@ -646,7 +648,7 @@ Key metrics:
 
 Draw conclusions from repeated Release runs on the target machine. Do not compare raw numbers across different language runtimes as though they were the same benchmark environment.
 
-See [`PERFORMANCE.md`](../../PERFORMANCE.md).
+See [`PERFORMANCE.md`](https://github.com/WangHHB/ConcurrentExclusiveLock/blob/main/rust/PERFORMANCE.md).
 
 ---
 
@@ -715,4 +717,4 @@ Dual licensed under:
 MIT OR Apache-2.0
 ```
 
-See [`LICENSE-MIT`](LICENSE-MIT) and [`LICENSE-APACHE-2.0`](LICENSE-APACHE-2.0).
+See [`LICENSE-MIT`](https://github.com/WangHHB/ConcurrentExclusiveLock/blob/main/rust/crates/concurrent-exclusive-lock/LICENSE-MIT) and [`LICENSE-APACHE-2.0`](https://github.com/WangHHB/ConcurrentExclusiveLock/blob/main/rust/crates/concurrent-exclusive-lock/LICENSE-APACHE-2.0).
