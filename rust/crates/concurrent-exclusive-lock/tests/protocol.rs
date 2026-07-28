@@ -1,6 +1,6 @@
 use concurrent_exclusive_lock::{
-    ConcurrentExclusiveLock, ConcurrentExclusiveLockPipeline,
-    ConcurrentExclusiveLockSegment, ConcurrentExclusiveLockState, IDType,
+    ConcurrentExclusiveLock, ConcurrentExclusiveLockPipeline, ConcurrentExclusiveLockSegment,
+    ConcurrentExclusiveLockState, IDType,
 };
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::{Arc, Barrier};
@@ -20,11 +20,11 @@ fn concurrent_regions_overlap_but_exclusive_does_not() {
         handles.push(thread::spawn(move || {
             for operation in 0..200 {
                 if (worker + operation) % 7 == 0 {
-                    lock.acquire_exclusive();
+                    let guard = lock.acquire_exclusive();
                     assert!(!writer.swap(true, Ordering::SeqCst));
                     assert_eq!(readers.load(Ordering::SeqCst), 0);
                     writer.store(false, Ordering::SeqCst);
-                    lock.release_exclusive();
+                    lock.release_exclusive(guard);
                 } else {
                     lock.acquire_concurrent().unwrap();
                     assert!(!writer.load(Ordering::SeqCst));
@@ -58,9 +58,9 @@ fn conditional_upgrade_has_one_winner_and_releases_failures() {
         handles.push(thread::spawn(move || {
             lock.acquire_concurrent().unwrap();
             barrier.wait();
-            if lock.try_concurrent_to_exclusive_with_switch_context_id(42) {
+            if let Some(guard) = lock.try_concurrent_to_exclusive_with_switch_context_id(42) {
                 winners.fetch_add(1, Ordering::SeqCst);
-                lock.release_exclusive();
+                lock.release_exclusive(guard);
             }
         }));
     }

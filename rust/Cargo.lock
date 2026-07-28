@@ -7,8 +7,54 @@ name = "cel-test-and-benchmark"
 version = "1.0.0"
 dependencies = [
  "concurrent-exclusive-lock",
+ "parking_lot",
 ]
+
+[[package]]
+name = "cfg-if"
+version = "1.0.4"
 
 [[package]]
 name = "concurrent-exclusive-lock"
 version = "1.0.0"
+
+[[package]]
+name = "libc"
+version = "0.2.189"
+
+[[package]]
+name = "lock_api"
+version = "0.4.14"
+dependencies = [
+ "scopeguard",
+]
+
+[[package]]
+name = "parking_lot"
+version = "0.12.5"
+dependencies = [
+ "lock_api",
+ "parking_lot_core",
+]
+
+[[package]]
+name = "parking_lot_core"
+version = "0.9.12"
+dependencies = [
+ "cfg-if",
+ "libc",
+ "smallvec",
+ "windows-link",
+]
+
+[[package]]
+name = "scopeguard"
+version = "1.2.0"
+
+[[package]]
+name = "smallvec"
+version = "1.15.2"
+
+[[package]]
+name = "windows-link"
+version = "0.2.1"

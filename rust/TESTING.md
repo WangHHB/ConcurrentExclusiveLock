@@ -1,104 +1,89 @@
-# Rust Semantic and Stress Test Guide
+# Rust semantic and stress testing
 
-## 1. Purpose
+## Scope
 
-The test suite validates protocol correctness and long-running stability for `ConcurrentExclusiveLock`, `ConcurrentExclusiveLockScope`, and `ConcurrentExclusiveLockPipeline`.
+The suite covers Concurrent ID uniqueness, Concurrent overlap, Exclusive isolation, preemptive Exclusive behavior, upgrade/downgrade, multiple upgrade serialization, ContextID/EpochID conditional conversion, Try/timeouts, Scope and Pipeline unwind release, deterministic Segment semantics, randomized Pipeline composition, Exclusive contention progress, and final Idle-state validation.
 
-It answers:
+## Quick verification
 
-> After real multithreaded contention, upgrade, downgrade, Try failure, panic unwinding, and long execution, does the lock still obey the Concurrent/Exclusive permission protocol and remain reusable?
+```bash
+./build.sh
+./run-tests.sh
+```
 
-Throughput is not a pass condition for semantic tests. `observed_state()` and `observed_contention()` are observational snapshots only.
-
-## 2. Quick run
-
-From the `rust` directory:
+On Windows:
 
 ```powershell
+.\build.ps1
 .\run-tests.ps1
 ```
 
-Or run Cargo directly:
+The workspace builds with `--offline`; parking_lot and its required dependencies are under `vendor/`.
 
-```powershell
-cargo test --release --workspace
-cargo run --release -p cel-test-and-benchmark -- --full-semantics
-cargo run --release -p cel-test-and-benchmark -- --pipeline-semantics
+## Cargo tests
+
+```bash
+cargo test --release --workspace --offline
 ```
 
-## 3. Modes
+## Full semantics
 
-### `cargo test --release --workspace`
-
-Runs the core crate integration tests, including Concurrent/Exclusive isolation, conditional-upgrade single-winner behavior, automatic release on conditional failure, and Pipeline continuation after an ID condition fails.
-
-### `--full-semantics`
-
-Runs deterministic protocol checks followed by randomized legal call paths. It covers ordinary acquisition/release, preemptive Exclusive, upgrade, downgrade, ContextID/EpochID conditions, Scope cleanup, timeout APIs, snapshots, Pipeline transitions, and independent-lock isolation.
-
-```powershell
-cargo run --release -p cel-test-and-benchmark -- `
-  --full-semantics `
-  --lock-instances 8 `
-  --semantic-workers 4 `
-  --semantic-operations 1000 `
+```bash
+./target/release/cel-test-and-benchmark \
+  --full-semantics --lock-instances 2 \
+  --semantic-workers 4 --semantic-operations 512 \
   --semantic-seed 0x6A09E667F3BCC909
 ```
 
-### `--pipeline-semantics`
+The unwind checks intentionally panic inside Scope/Pipeline callbacks and catch the panic. The default panic hook may print the intentional message; the final `PASS` line is authoritative.
 
-Runs fixed Pipeline combinations and verifies independent segments, convergence, business-ID conditions, Try failure, None continuation, and panic-path release.
+## Pipeline semantics
 
-### `--pipeline-stress <duration>`
-
-Continuously generates randomized synchronous Segment combinations covering ordinary acquisition, Try, upgrade, downgrade, and business-ID convergence.
-
-```powershell
-cargo run --release -p cel-test-and-benchmark -- `
-  --pipeline-stress 10m `
-  --lock-instances 8 `
-  --semantic-workers 8 `
-  --semantic-seed 0x123456789ABCDEF0
+```bash
+./target/release/cel-test-and-benchmark --pipeline-semantics
 ```
 
-Supported durations include `500ms`, `30s`, `10m`, `24h`, `1d`, and `01:30:00`.
+## Randomized Pipeline stress
 
-### `--contention-stress <duration>`
+```bash
+./target/release/cel-test-and-benchmark \
+  --pipeline-stress 30m --lock-instances 1 \
+  --semantic-workers 4 --semantic-seed 0x6A09E667F3BCC909
+```
 
-Uses many threads contending for Exclusive on one lock. It checks non-overlap, practical progress for every waiter during the test window, final Idle state, and reports min/max acquisitions per worker. It does not require strict FIFO.
+Each round builds 3–10 random segments. The validator rejects overlapping Exclusive callbacks and any Exclusive/Concurrent overlap. The long run reports progress at least once per minute and must finish with both validator and lock Idle.
 
-### `--endurance <duration>`
+The formal 30-minute run passed with `2,732,232,429` randomized rounds and `14,775,380,351` validated callbacks.
 
-Repeatedly runs deterministic contracts and short randomized Pipeline batches while reusing lock objects.
+## Exclusive contention progress
 
-## 4. Core rules
+```bash
+./target/release/cel-test-and-benchmark \
+  --contention-stress 60s --semantic-workers 32
+```
 
-Depending on the selected mode, the tests verify:
+Every worker must make progress, Exclusive regions must not overlap, and the lock must finish Idle. The final 60-second run completed `401,719,852` acquisitions across 32 workers; the minimum per worker was `11,457,115`.
 
-1. Exclusive never overlaps Concurrent or another Exclusive region.
-2. Concurrent IDs stay in range.
-3. New Concurrent entries stop after preemptive Exclusive pressure enters the window.
-4. upgraded Exclusive regions remain serialized.
-5. failed conditional upgrade automatically releases the original Concurrent permission.
-6. downgrade leaves the caller holding Concurrent, not Exclusive.
-7. Scope releases according to its final state on normal exit and panic unwind.
-8. failed Try segments are skipped and later Pipeline segments continue from None.
-9. the lock is reusable after every round.
-10. independent locks do not share protocol state.
+## Endurance
 
-## 5. Reproduction
+```bash
+./target/release/cel-test-and-benchmark \
+  --endurance 30m --lock-instances 2 --semantic-workers 4
+```
 
-Preserve the mode, full command, seed, lock count, worker count, operation count, and panic output. Re-run with the same `--semantic-seed` to reproduce the same randomized call shape.
+The final 60-second Endurance run completed 58 deterministic batches.
 
-## 6. Recommended order
-
-Routine changes:
+## Release checklist
 
 ```text
-cargo test --release --workspace
-→ --full-semantics
-→ --pipeline-semantics
-→ --pipeline-stress 10m
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --offline --no-deps -- -D warnings
+cargo test --release --workspace --offline
+full semantics
+Pipeline semantics
+30-minute Pipeline stress
+60-second Exclusive contention stress
+benchmark state-hash equality
 ```
 
-Before release, also run formatting, Clippy with warnings denied, larger semantic parameters, several hours of Pipeline stress, and contention stress. Major synchronization changes should receive 24-hour runs on Windows, Linux, and macOS.
+Raw logs are retained under `TestResults/final/`.

@@ -1,0 +1,5 @@
+   Packaging concurrent-exclusive-lock v1.0.0 (/mnt/data/rust_validation/ConcurrentExclusiveLock_Rust_Release/crates/concurrent-exclusive-lock)
+   Verifying concurrent-exclusive-lock v1.0.0 (/mnt/data/rust_validation/ConcurrentExclusiveLock_Rust_Release/crates/concurrent-exclusive-lock)
+   Compiling concurrent-exclusive-lock v1.0.0 (/mnt/data/rust_validation/ConcurrentExclusiveLock_Rust_Release/target/package/concurrent-exclusive-lock-1.0.0)
+    Finished dev [unoptimized + debuginfo] target(s) in 0.15s
+    Packaged 8 files, 87.1KiB (19.6KiB compressed)

@@ -1,0 +1,60 @@
+ConcurrentExclusiveLock Rust benchmark
+Rust=1.75, OS=linux, CPU=4
+lock_instances=1, threads/lock=16, total_threads=16, operations/thread=50000
+workload=memory, memory=64 MiB/lock, read_work=1, write_work=1
+Each strategy/scenario uses fresh lock and Work instances.
+
+Scenario: read/write 100/0
+  lock type                   elapsed        works/s   works/s/lock   avg write ns         reads        writes              state
+  std::sync::Mutex             0.083s        9655871        9655871              0        800000             0                  0
+  std::sync::RwLock            0.038s       21061252       21061252              0        800000             0                  0
+  parking_lot::Mutex           0.119s        6695183        6695183              0        800000             0                  0
+  parking_lot::RwLock          0.037s       21405547       21405547              0        800000             0                  0
+  CEL                          0.026s       31136259       31136259              0        800000             0                  0
+  CEL(ExclusiveOnly)           0.101s        7915011        7915011              0        800000             0                  0
+
+Scenario: read/write 99.5/0.5
+  lock type                   elapsed        works/s   works/s/lock   avg write ns         reads        writes              state
+  std::sync::Mutex             0.095s        8387625        8387625           3924        796040          3960   717AE6B64D0C326F
+  std::sync::RwLock            0.051s       15632856       15632856          16108        796040          3960   717AE6B64D0C326F
+  parking_lot::Mutex           0.112s        7155639        7155639           6249        796040          3960   717AE6B64D0C326F
+  parking_lot::RwLock          0.047s       17034199       17034199           6032        796040          3960   717AE6B64D0C326F
+  CEL                          0.033s       24431700       24431700           1221        796040          3960   717AE6B64D0C326F
+  CEL(ExclusiveOnly)           0.115s        6970169        6970169           5203        796040          3960   717AE6B64D0C326F
+
+Scenario: read/write 90/10
+  lock type                   elapsed        works/s   works/s/lock   avg write ns         reads        writes              state
+  std::sync::Mutex             0.118s        6781795        6781795           3730        719756         80244   7D29790F86F49360
+  std::sync::RwLock            0.165s        4834923        4834923           6455        719756         80244   7D29790F86F49360
+  parking_lot::Mutex           0.222s        3607370        3607370           8577        719756         80244   7D29790F86F49360
+  parking_lot::RwLock          0.122s        6538139        6538139           3667        719756         80244   7D29790F86F49360
+  CEL                          0.102s        7861429        7861429           2137        719756         80244   7D29790F86F49360
+  CEL(ExclusiveOnly)           0.161s        4980828        4980828           6408        719756         80244   7D29790F86F49360
+
+Scenario: read/write 50/50
+  lock type                   elapsed        works/s   works/s/lock   avg write ns         reads        writes              state
+  std::sync::Mutex             0.254s        3144253        3144253           5438        400193        399807   9CA683EBB4E7CEE2
+  std::sync::RwLock            0.393s        2037329        2037329           8434        400193        399807   9CA683EBB4E7CEE2
+  parking_lot::Mutex           0.437s        1831212        1831212           9872        400193        399807   9CA683EBB4E7CEE2
+  parking_lot::RwLock          0.442s        1811041        1811041           9661        400193        399807   9CA683EBB4E7CEE2
+  CEL                          0.243s        3287067        3287067           2474        400193        399807   9CA683EBB4E7CEE2
+  CEL(ExclusiveOnly)           0.262s        3057910        3057910           5372        400193        399807   9CA683EBB4E7CEE2
+
+Scenario: read/write 30/70
+  lock type                   elapsed        works/s   works/s/lock   avg write ns         reads        writes              state
+  std::sync::Mutex             0.274s        2916175        2916175           4987        240434        559566   330AC89502D716CA
+  std::sync::RwLock            0.384s        2085137        2085137           7287        240434        559566   330AC89502D716CA
+  parking_lot::Mutex           0.568s        1408180        1408180          11714        240434        559566   330AC89502D716CA
+  parking_lot::RwLock          0.604s        1324476        1324476          12630        240434        559566   330AC89502D716CA
+  CEL                          0.280s        2856594        2856594           3553        240434        559566   330AC89502D716CA
+  CEL(ExclusiveOnly)           0.252s        3176794        3176794           4407        240434        559566   330AC89502D716CA
+
+Scenario: read/write 0/100
+  lock type                   elapsed        works/s   works/s/lock   avg write ns         reads        writes              state
+  std::sync::Mutex             0.272s        2936328        2936328           4441             0        800000   428AB96AE3328423
+  std::sync::RwLock            0.259s        3092052        3092052           3950             0        800000   428AB96AE3328423
+  parking_lot::Mutex           0.452s        1769377        1769377           7897             0        800000   428AB96AE3328423
+  parking_lot::RwLock          0.559s        1430813        1430813          10015             0        800000   428AB96AE3328423
+  CEL                          0.310s        2582370        2582370           4892             0        800000   428AB96AE3328423
+  CEL(ExclusiveOnly)           0.294s        2720535        2720535           4598             0        800000   428AB96AE3328423
+

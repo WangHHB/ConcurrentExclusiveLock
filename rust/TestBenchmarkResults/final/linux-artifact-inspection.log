@@ -1,0 +1,32 @@
+rustc 1.75.0 (82e1608df 2023-12-21)
+cargo 1.75.0 (1d8b05cdd 2023-11-20)
+Artifacts/linux-x64/cel-test-and-benchmark: ELF 64-bit LSB pie executable, x86-64, version 1 (SYSV), dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2, BuildID[sha1]=1ca6d62f8b9c9d6722fcf254524bcf8364338d54, for GNU/Linux 3.2.0, with debug_info, not stripped
+	linux-vdso.so.1 (0x00007f69c1068000)
+	libgcc_s.so.1 => /lib/x86_64-linux-gnu/libgcc_s.so.1 (0x00007f69c0f8f000)
+	libc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x00007f69c0d9b000)
+	/lib64/ld-linux-x86-64.so.2 (0x00007f69c106a000)
+--- help ---
+ConcurrentExclusiveLock Rust test and benchmark
+
+Benchmark (default):
+  --lock-instances <N>    independent lock + Work instances (default 1)
+  --threads <N>           dedicated worker threads per lock (default 32)
+  --operations <N>        operations per worker (default 10000)
+  --work <N>              set both read and write steps
+  --read-work <N>         memory steps in each Concurrent region (default 32)
+  --write-work <N>        memory steps in each Exclusive region (default 32)
+  --memory-mb <N>         shared memory per lock instance (default 64)
+  --workload memory       C#-reference random-memory workload
+
+Semantic and stress modes:
+  --full-semantics
+  --pipeline-semantics
+  --pipeline-stress <duration>
+  --contention-stress <duration>
+  --endurance <duration>
+  --semantic-workers <N>  workers per lock for semantic modes (default 4)
+  --semantic-operations <N> rounds per worker/lock (default 256)
+  --semantic-seed <N|0xHEX>
+
+Duration examples: 500ms, 30s, 10m, 24h, 1d, 01:30:00
+

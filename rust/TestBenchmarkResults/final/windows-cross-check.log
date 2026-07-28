@@ -1,0 +1,1002 @@
+   Compiling parking_lot_core v0.9.12 (/mnt/data/rust_validation/ConcurrentExclusiveLock_Rust_Release/vendor/parking_lot/core)
+    Checking windows-link v0.2.1 (/mnt/data/rust_validation/ConcurrentExclusiveLock_Rust_Release/vendor/windows-link)
+    Checking cfg-if v1.0.4 (/mnt/data/rust_validation/ConcurrentExclusiveLock_Rust_Release/vendor/cfg-if)
+    Checking smallvec v1.15.2 (/mnt/data/rust_validation/ConcurrentExclusiveLock_Rust_Release/vendor/smallvec)
+error[E0463]: can't find crate for `core`
+  |
+  = note: the `x86_64-pc-windows-gnu` target may not be installed
+  = help: consider downloading the target with `rustup target add x86_64-pc-windows-gnu`
+
+error[E0463]: can't find crate for `compiler_builtins`
+
+For more information about this error, try `rustc --explain E0463`.
+error: could not compile `cfg-if` (lib) due to 2 previous errors
+warning: build failed, waiting for other jobs to finish...
+error[E0463]: can't find crate for `alloc`
+   --> vendor/smallvec/src/lib.rs:105:1
+    |
+105 | pub extern crate alloc;
+    | ^^^^^^^^^^^^^^^^^^^^^^^ can't find crate
+
+error: cannot find macro `include_str` in this scope
+ --> vendor/windows-link/src/lib.rs:1:10
+  |
+1 | #![doc = include_str!("../readme.md")]
+  |          ^^^^^^^^^^^
+
+error: could not compile `windows-link` (lib) due to 3 previous errors
+error[E0463]: can't find crate for `core`
+   --> vendor/smallvec/src/lib.rs:117:5
+    |
+117 | use core::borrow::{Borrow, BorrowMut};
+    |     ^^^^ can't find crate
+    |
+    = note: the `x86_64-pc-windows-gnu` target may not be installed
+    = help: consider downloading the target with `rustup target add x86_64-pc-windows-gnu`
+
+error[E0463]: can't find crate for `core`
+   --> vendor/smallvec/src/lib.rs:118:5
+    |
+118 | use core::cmp;
+    |     ^^^^ can't find crate
+    |
+    = note: the `x86_64-pc-windows-gnu` target may not be installed
+    = help: consider downloading the target with `rustup target add x86_64-pc-windows-gnu`
+
+error[E0463]: can't find crate for `core`
+   --> vendor/smallvec/src/lib.rs:119:5
+    |
+119 | use core::fmt;
+    |     ^^^^ can't find crate
+    |
+    = note: the `x86_64-pc-windows-gnu` target may not be installed
+    = help: consider downloading the target with `rustup target add x86_64-pc-windows-gnu`
+
+error[E0463]: can't find crate for `core`
+   --> vendor/smallvec/src/lib.rs:120:5
+    |
+120 | use core::hash::{Hash, Hasher};
+    |     ^^^^ can't find crate
+    |
+    = note: the `x86_64-pc-windows-gnu` target may not be installed
+    = help: consider downloading the target with `rustup target add x86_64-pc-windows-gnu`
+
+error[E0463]: can't find crate for `core`
+   --> vendor/smallvec/src/lib.rs:121:5
+    |
+121 | use core::hint::unreachable_unchecked;
+    |     ^^^^ can't find crate
+    |
+    = note: the `x86_64-pc-windows-gnu` target may not be installed
+    = help: consider downloading the target with `rustup target add x86_64-pc-windows-gnu`
+
+error[E0463]: can't find crate for `core`
+   --> vendor/smallvec/src/lib.rs:122:5
+    |
+122 | use core::iter::{repeat, FromIterator, FusedIterator, IntoIterator};
+    |     ^^^^ can't find crate
+    |
+    = note: the `x86_64-pc-windows-gnu` target may not be installed
+    = help: consider downloading the target with `rustup target add x86_64-pc-windows-gnu`
+
+error[E0463]: can't find crate for `core`
+   --> vendor/smallvec/src/lib.rs:123:5
+    |
+123 | use core::mem;
+    |     ^^^^ can't find crate
+    |
+    = note: the `x86_64-pc-windows-gnu` target may not be installed
+    = help: consider downloading the target with `rustup target add x86_64-pc-windows-gnu`
+
+error[E0463]: can't find crate for `core`
+   --> vendor/smallvec/src/lib.rs:124:5
+    |
+124 | use core::mem::MaybeUninit;
+    |     ^^^^ can't find crate
+    |
+    = note: the `x86_64-pc-windows-gnu` target may not be installed
+    = help: consider downloading the target with `rustup target add x86_64-pc-windows-gnu`
+
+error[E0463]: can't find crate for `core`
+   --> vendor/smallvec/src/lib.rs:125:5
+    |
+125 | use core::ops::{self, Range, RangeBounds};
+    |     ^^^^ can't find crate
+    |
+    = note: the `x86_64-pc-windows-gnu` target may not be installed
+    = help: consider downloading the target with `rustup target add x86_64-pc-windows-gnu`
+
+error[E0463]: can't find crate for `core`
+   --> vendor/smallvec/src/lib.rs:126:5
+    |
+126 | use core::ptr::{self, NonNull};
+    |     ^^^^ can't find crate
+    |
+    = note: the `x86_64-pc-windows-gnu` target may not be installed
+    = help: consider downloading the target with `rustup target add x86_64-pc-windows-gnu`
+
+error[E0463]: can't find crate for `core`
+   --> vendor/smallvec/src/lib.rs:127:5
+    |
+127 | use core::slice::{self, SliceIndex};
+    |     ^^^^ can't find crate
+    |
+    = note: the `x86_64-pc-windows-gnu` target may not be installed
+    = help: consider downloading the target with `rustup target add x86_64-pc-windows-gnu`
+
+error[E0463]: can't find crate for `core`
+    --> vendor/smallvec/src/lib.rs:1046:13
+     |
+1046 |         use core::ops::Bound::*;
+     |             ^^^^ can't find crate
+     |
+     = note: the `x86_64-pc-windows-gnu` target may not be installed
+     = help: consider downloading the target with `rustup target add x86_64-pc-windows-gnu`
+
+error: cannot find attribute `derive` in this scope
+   --> vendor/smallvec/src/lib.rs:298:3
+    |
+298 | #[derive(Debug)]
+    |   ^^^^^^
+
+error: cannot find macro `write` in this scope
+   --> vendor/smallvec/src/lib.rs:311:9
+    |
+311 |         write!(f, "Allocation error: {:?}", self)
+    |         ^^^^^
+
+error: cannot find macro `panic` in this scope
+   --> vendor/smallvec/src/lib.rs:325:54
+    |
+325 |         Err(CollectionAllocErr::CapacityOverflow) => panic!("capacity overflow"),
+    |                                                      ^^^^^
+
+error: cannot find macro `cfg` in this scope
+   --> vendor/smallvec/src/lib.rs:256:12
+    |
+256 |         if cfg!(debug_assertions) {
+    |            ^^^
+...
+715 |             _ => debug_unreachable!(),
+    |                  -------------------- in this macro invocation
+    |
+    = note: `cfg` is in scope, but it is an attribute: `#[cfg]`
+    = note: this error originates in the macro `debug_unreachable` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: cannot find macro `panic` in this scope
+   --> vendor/smallvec/src/lib.rs:257:13
+    |
+257 |             panic!($e);
+    |             ^^^^^
+...
+715 |             _ => debug_unreachable!(),
+    |                  -------------------- in this macro invocation
+    |
+    = note: this error originates in the macro `debug_unreachable` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: cannot find macro `cfg` in this scope
+   --> vendor/smallvec/src/lib.rs:256:12
+    |
+256 |         if cfg!(debug_assertions) {
+    |            ^^^
+...
+722 |             _ => debug_unreachable!(),
+    |                  -------------------- in this macro invocation
+    |
+    = note: `cfg` is in scope, but it is an attribute: `#[cfg]`
+    = note: this error originates in the macro `debug_unreachable` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: cannot find macro `panic` in this scope
+   --> vendor/smallvec/src/lib.rs:257:13
+    |
+257 |             panic!($e);
+    |             ^^^^^
+...
+722 |             _ => debug_unreachable!(),
+    |                  -------------------- in this macro invocation
+    |
+    = note: this error originates in the macro `debug_unreachable` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: cannot find macro `cfg` in this scope
+   --> vendor/smallvec/src/lib.rs:256:12
+    |
+256 |         if cfg!(debug_assertions) {
+    |            ^^^
+...
+740 |             _ => debug_unreachable!(),
+    |                  -------------------- in this macro invocation
+    |
+    = note: `cfg` is in scope, but it is an attribute: `#[cfg]`
+    = note: this error originates in the macro `debug_unreachable` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: cannot find macro `panic` in this scope
+   --> vendor/smallvec/src/lib.rs:257:13
+    |
+257 |             panic!($e);
+    |             ^^^^^
+...
+740 |             _ => debug_unreachable!(),
+    |                  -------------------- in this macro invocation
+    |
+    = note: this error originates in the macro `debug_unreachable` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: cannot find macro `cfg` in this scope
+   --> vendor/smallvec/src/lib.rs:256:12
+    |
+256 |         if cfg!(debug_assertions) {
+    |            ^^^
+...
+747 |             _ => debug_unreachable!(),
+    |                  -------------------- in this macro invocation
+    |
+    = note: `cfg` is in scope, but it is an attribute: `#[cfg]`
+    = note: this error originates in the macro `debug_unreachable` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: cannot find macro `panic` in this scope
+   --> vendor/smallvec/src/lib.rs:257:13
+    |
+257 |             panic!($e);
+    |             ^^^^^
+...
+747 |             _ => debug_unreachable!(),
+    |                  -------------------- in this macro invocation
+    |
+    = note: this error originates in the macro `debug_unreachable` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: cannot find macro `cfg` in this scope
+   --> vendor/smallvec/src/lib.rs:256:12
+    |
+256 |         if cfg!(debug_assertions) {
+    |            ^^^
+...
+754 |             _ => debug_unreachable!(),
+    |                  -------------------- in this macro invocation
+    |
+    = note: `cfg` is in scope, but it is an attribute: `#[cfg]`
+    = note: this error originates in the macro `debug_unreachable` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: cannot find macro `panic` in this scope
+   --> vendor/smallvec/src/lib.rs:257:13
+    |
+257 |             panic!($e);
+    |             ^^^^^
+...
+754 |             _ => debug_unreachable!(),
+    |                  -------------------- in this macro invocation
+    |
+    = note: this error originates in the macro `debug_unreachable` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: cannot find macro `assert` in this scope
+   --> vendor/smallvec/src/lib.rs:806:9
+    |
+806 |         assert!(
+    |         ^^^^^^
+
+error: cannot find macro `assert` in this scope
+   --> vendor/smallvec/src/lib.rs:911:9
+    |
+911 |         assert!(len <= A::size());
+    |         ^^^^^^
+
+error: cannot find macro `assert` in this scope
+    --> vendor/smallvec/src/lib.rs:1060:9
+     |
+1060 |         assert!(start <= end);
+     |         ^^^^^^
+
+error: cannot find macro `assert` in this scope
+    --> vendor/smallvec/src/lib.rs:1061:9
+     |
+1061 |         assert!(end <= len);
+     |         ^^^^^^
+
+error: cannot find macro `assert` in this scope
+    --> vendor/smallvec/src/lib.rs:1201:13
+     |
+1201 |             assert!(new_cap >= len);
+     |             ^^^^^^
+
+error: cannot find macro `debug_assert` in this scope
+    --> vendor/smallvec/src/lib.rs:1212:17
+     |
+1212 |                 debug_assert!(layout.size() > 0);
+     |                 ^^^^^^^^^^^^
+
+error: cannot find macro `debug_assert_eq` in this scope
+    --> vendor/smallvec/src/lib.rs:1250:9
+     |
+1250 |         debug_assert_eq!(self.len(), self.capacity());
+     |         ^^^^^^^^^^^^^^^
+
+error: cannot find macro `assert` in this scope
+    --> vendor/smallvec/src/lib.rs:1376:13
+     |
+1376 |             assert!(index < len);
+     |             ^^^^^^
+
+error: cannot find macro `panic` in this scope
+    --> vendor/smallvec/src/lib.rs:1400:17
+     |
+1400 |                 panic!("index exceeds length");
+     |                 ^^^^^
+
+error: cannot find macro `assert` in this scope
+    --> vendor/smallvec/src/lib.rs:1422:9
+     |
+1422 |         assert!(lower_size_bound <= core::isize::MAX as usize); // Ensure offset is indexable
+     |         ^^^^^^
+
+error: cannot find macro `assert` in this scope
+    --> vendor/smallvec/src/lib.rs:1423:9
+     |
+1423 |         assert!(index + lower_size_bound >= index); // Protect against overflow
+     |         ^^^^^^
+
+error: cannot find macro `assert` in this scope
+    --> vendor/smallvec/src/lib.rs:1427:9
+     |
+1427 |         assert!(index <= old_len);
+     |         ^^^^^^
+
+error: cannot find macro `debug_assert` in this scope
+    --> vendor/smallvec/src/lib.rs:1729:13
+     |
+1729 |             debug_assert!(!ptr.is_null(), "Called `from_raw_parts` with null pointer.");
+     |             ^^^^^^^^^^^^
+
+error: cannot find macro `assert` in this scope
+    --> vendor/smallvec/src/lib.rs:1732:9
+     |
+1732 |         assert!(capacity > Self::inline_capacity());
+     |         ^^^^^^
+
+error: cannot find macro `assert` in this scope
+    --> vendor/smallvec/src/lib.rs:1799:9
+     |
+1799 |         assert!(index <= len);
+     |         ^^^^^^
+
+error: cannot determine resolution for the macro `vec`
+    --> vendor/smallvec/src/lib.rs:1849:13
+     |
+1849 |             vec![elem; n].into()
+     |             ^^^
+     |
+     = note: import resolution is stuck, try simplifying macro imports
+
+error[E0463]: can't find crate for `core`
+   --> vendor/smallvec/src/lib.rs:964:13
+    |
+964 |             core::usize::MAX
+    |             ^^^^ can't find crate
+    |
+    = note: the `x86_64-pc-windows-gnu` target may not be installed
+    = help: consider downloading the target with `rustup target add x86_64-pc-windows-gnu`
+
+error[E0463]: can't find crate for `core`
+    --> vendor/smallvec/src/lib.rs:1858:23
+     |
+1858 |                     ::core::ptr::write(ptr.add(i), elem.clone());
+     |                       ^^^^ can't find crate
+     |
+     = note: the `x86_64-pc-windows-gnu` target may not be installed
+     = help: consider downloading the target with `rustup target add x86_64-pc-windows-gnu`
+
+error[E0463]: can't find crate for `core`
+    --> vendor/smallvec/src/lib.rs:2327:18
+     |
+2327 |         unsafe { core::slice::from_raw_parts(self.data.as_ptr().add(self.current), len) }
+     |                  ^^^^ can't find crate
+     |
+     = note: the `x86_64-pc-windows-gnu` target may not be installed
+     = help: consider downloading the target with `rustup target add x86_64-pc-windows-gnu`
+
+error[E0463]: can't find crate for `core`
+    --> vendor/smallvec/src/lib.rs:2333:18
+     |
+2333 |         unsafe { core::slice::from_raw_parts_mut(self.data.as_mut_ptr().add(self.current), len) }
+     |                  ^^^^ can't find crate
+     |
+     = note: the `x86_64-pc-windows-gnu` target may not be installed
+     = help: consider downloading the target with `rustup target add x86_64-pc-windows-gnu`
+
+error[E0405]: cannot find trait `Clone` in this scope
+   --> vendor/smallvec/src/lib.rs:291:9
+    |
+291 | impl<T: Clone> ExtendFromSlice<T> for Vec<T> {
+    |         ^^^^^ not found in this scope
+
+error[E0405]: cannot find trait `From` in this scope
+   --> vendor/smallvec/src/lib.rs:316:6
+    |
+316 | impl From<LayoutErr> for CollectionAllocErr {
+    |      ^^^^ not found in this scope
+
+error[E0412]: cannot find type `Result` in this scope
+   --> vendor/smallvec/src/lib.rs:322:26
+    |
+322 | fn infallible<T>(result: Result<T, CollectionAllocErr>) -> T {
+    |                          ^^^^^^ not found in this scope
+
+error[E0531]: cannot find tuple struct or tuple variant `Ok` in this scope
+   --> vendor/smallvec/src/lib.rs:324:9
+    |
+324 |         Ok(x) => x,
+    |         ^^ not found in this scope
+
+error[E0531]: cannot find tuple struct or tuple variant `Err` in this scope
+   --> vendor/smallvec/src/lib.rs:325:9
+    |
+325 |         Err(CollectionAllocErr::CapacityOverflow) => panic!("capacity overflow"),
+    |         ^^^ not found in this scope
+
+error[E0531]: cannot find tuple struct or tuple variant `Err` in this scope
+   --> vendor/smallvec/src/lib.rs:326:9
+    |
+326 |         Err(CollectionAllocErr::AllocErr { layout }) => alloc::alloc::handle_alloc_error(layout),
+    |         ^^^ not found in this scope
+
+error[E0412]: cannot find type `Result` in this scope
+   --> vendor/smallvec/src/lib.rs:332:33
+    |
+332 | fn layout_array<T>(n: usize) -> Result<Layout, CollectionAllocErr> {
+    |                                 ^^^^^^ not found in this scope
+
+error[E0405]: cannot find trait `Sync` in this scope
+   --> vendor/smallvec/src/lib.rs:367:34
+    |
+367 | unsafe impl<'a, T: Sync + Array> Sync for Drain<'a, T> {}
+    |                                  ^^^^ not found in this scope
+
+error[E0405]: cannot find trait `Sync` in this scope
+   --> vendor/smallvec/src/lib.rs:367:20
+    |
+367 | unsafe impl<'a, T: Sync + Array> Sync for Drain<'a, T> {}
+    |                    ^^^^ not found in this scope
+
+error[E0405]: cannot find trait `Send` in this scope
+   --> vendor/smallvec/src/lib.rs:368:34
+    |
+368 | unsafe impl<'a, T: Send + Array> Send for Drain<'a, T> {}
+    |                                  ^^^^ not found in this scope
+
+error[E0405]: cannot find trait `Send` in this scope
+   --> vendor/smallvec/src/lib.rs:368:20
+    |
+368 | unsafe impl<'a, T: Send + Array> Send for Drain<'a, T> {}
+    |                    ^^^^ not found in this scope
+
+error[E0405]: cannot find trait `Iterator` in this scope
+   --> vendor/smallvec/src/lib.rs:370:25
+    |
+370 | impl<'a, T: 'a + Array> Iterator for Drain<'a, T> {
+    |                         ^^^^^^^^ not found in this scope
+
+error[E0412]: cannot find type `Option` in this scope
+   --> vendor/smallvec/src/lib.rs:374:27
+    |
+374 |     fn next(&mut self) -> Option<T::Item> {
+    |                           ^^^^^^ not found in this scope
+
+error[E0412]: cannot find type `Option` in this scope
+   --> vendor/smallvec/src/lib.rs:381:36
+    |
+381 |     fn size_hint(&self) -> (usize, Option<usize>) {
+    |                                    ^^^^^^ not found in this scope
+
+error[E0405]: cannot find trait `DoubleEndedIterator` in this scope
+   --> vendor/smallvec/src/lib.rs:386:25
+    |
+386 | impl<'a, T: 'a + Array> DoubleEndedIterator for Drain<'a, T> {
+    |                         ^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0412]: cannot find type `Option` in this scope
+   --> vendor/smallvec/src/lib.rs:388:32
+    |
+388 |     fn next_back(&mut self) -> Option<T::Item> {
+    |                                ^^^^^^ not found in this scope
+
+error[E0405]: cannot find trait `ExactSizeIterator` in this scope
+   --> vendor/smallvec/src/lib.rs:395:20
+    |
+395 | impl<'a, T: Array> ExactSizeIterator for Drain<'a, T> {
+    |                    ^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0405]: cannot find trait `Drop` in this scope
+   --> vendor/smallvec/src/lib.rs:404:25
+    |
+404 | impl<'a, T: 'a + Array> Drop for Drain<'a, T> {
+    |                         ^^^^ not found in this scope
+
+error[E0425]: cannot find value `drop` in this scope
+   --> vendor/smallvec/src/lib.rs:406:23
+    |
+405 |     fn drop(&mut self) {
+    |        ---- a method by that name is available on `Self` here
+406 |         self.for_each(drop);
+    |                       ^^^^ not found in this scope
+
+error[E0405]: cannot find trait `Send` in this scope
+   --> vendor/smallvec/src/lib.rs:763:30
+    |
+763 | unsafe impl<A: Array + Send> Send for SmallVecData<A> {}
+    |                              ^^^^ not found in this scope
+
+error[E0405]: cannot find trait `Send` in this scope
+   --> vendor/smallvec/src/lib.rs:763:24
+    |
+763 | unsafe impl<A: Array + Send> Send for SmallVecData<A> {}
+    |                        ^^^^ not found in this scope
+
+error[E0405]: cannot find trait `Sync` in this scope
+   --> vendor/smallvec/src/lib.rs:764:30
+    |
+764 | unsafe impl<A: Array + Sync> Sync for SmallVecData<A> {}
+    |                              ^^^^ not found in this scope
+
+error[E0405]: cannot find trait `Sync` in this scope
+   --> vendor/smallvec/src/lib.rs:764:24
+    |
+764 | unsafe impl<A: Array + Sync> Sync for SmallVecData<A> {}
+    |                        ^^^^ not found in this scope
+
+error[E0531]: cannot find tuple struct or tuple variant `Included` in this scope
+    --> vendor/smallvec/src/lib.rs:1050:13
+     |
+1050 |             Included(&n) => n,
+     |             ^^^^^^^^ not found in this scope
+
+error[E0531]: cannot find tuple struct or tuple variant `Excluded` in this scope
+    --> vendor/smallvec/src/lib.rs:1051:13
+     |
+1051 |             Excluded(&n) => n.checked_add(1).expect("Range start out of bounds"),
+     |             ^^^^^^^^ not found in this scope
+
+error[E0531]: cannot find tuple struct or tuple variant `Included` in this scope
+    --> vendor/smallvec/src/lib.rs:1055:13
+     |
+1055 |             Included(&n) => n.checked_add(1).expect("Range end out of bounds"),
+     |             ^^^^^^^^ not found in this scope
+
+error[E0531]: cannot find tuple struct or tuple variant `Excluded` in this scope
+    --> vendor/smallvec/src/lib.rs:1056:13
+     |
+1056 |             Excluded(&n) => n,
+     |             ^^^^^^^^ not found in this scope
+
+error[E0412]: cannot find type `Option` in this scope
+    --> vendor/smallvec/src/lib.rs:1154:30
+     |
+1154 |     pub fn pop(&mut self) -> Option<A::Item> {
+     |                              ^^^^^^ not found in this scope
+
+error[E0425]: cannot find value `None` in this scope
+    --> vendor/smallvec/src/lib.rs:1159:24
+     |
+1159 |                 return None;
+     |                        ^^^^ not found in this scope
+
+error[E0412]: cannot find type `Result` in this scope
+    --> vendor/smallvec/src/lib.rs:1197:51
+     |
+1197 |     pub fn try_grow(&mut self, new_cap: usize) -> Result<(), CollectionAllocErr> {
+     |                                                   ^^^^^^ not found in this scope
+
+error[E0412]: cannot find type `Result` in this scope
+    --> vendor/smallvec/src/lib.rs:1261:57
+     |
+1261 |     pub fn try_reserve(&mut self, additional: usize) -> Result<(), CollectionAllocErr> {
+     |                                                         ^^^^^^ not found in this scope
+
+error[E0412]: cannot find type `Result` in this scope
+    --> vendor/smallvec/src/lib.rs:1283:63
+     |
+1283 |     pub fn try_reserve_exact(&mut self, additional: usize) -> Result<(), CollectionAllocErr> {
+     |                                                               ^^^^^^ not found in this scope
+
+error[E0531]: cannot find tuple struct or tuple variant `Some` in this scope
+    --> vendor/smallvec/src/lib.rs:1452:21
+     |
+1452 |                     Some(x) => x,
+     |                     ^^^^ not found in this scope
+
+error[E0405]: cannot find trait `Drop` in this scope
+    --> vendor/smallvec/src/lib.rs:1486:17
+     |
+1486 |         impl<T> Drop for DropOnPanic<T> {
+     |                 ^^^^ not found in this scope
+
+error[E0412]: cannot find type `Result` in this scope
+    --> vendor/smallvec/src/lib.rs:1526:32
+     |
+1526 |     pub fn into_inner(self) -> Result<A, Self> {
+     |                                ^^^^^^ not found in this scope
+
+error[E0405]: cannot find trait `FnMut` in this scope
+    --> vendor/smallvec/src/lib.rs:1544:22
+     |
+1544 |     pub fn retain<F: FnMut(&mut A::Item) -> bool>(&mut self, mut f: F) {
+     |                      ^^^^^ not found in this scope
+
+error[E0405]: cannot find trait `FnMut` in this scope
+    --> vendor/smallvec/src/lib.rs:1562:26
+     |
+1562 |     pub fn retain_mut<F: FnMut(&mut A::Item) -> bool>(&mut self, f: F) {
+     |                          ^^^^^ not found in this scope
+
+error[E0405]: cannot find trait `PartialEq` in this scope
+    --> vendor/smallvec/src/lib.rs:1569:18
+     |
+1569 |         A::Item: PartialEq<A::Item>,
+     |                  ^^^^^^^^^ not found in this scope
+
+error[E0405]: cannot find trait `FnMut` in this scope
+    --> vendor/smallvec/src/lib.rs:1577:12
+     |
+1577 |         F: FnMut(&mut A::Item, &mut A::Item) -> bool,
+     |            ^^^^^ not found in this scope
+
+error[E0405]: cannot find trait `FnMut` in this scope
+    --> vendor/smallvec/src/lib.rs:1609:12
+     |
+1609 |         F: FnMut(&mut A::Item) -> K,
+     |            ^^^^^ not found in this scope
+
+error[E0405]: cannot find trait `PartialEq` in this scope
+    --> vendor/smallvec/src/lib.rs:1610:12
+     |
+1610 |         K: PartialEq<K>,
+     |            ^^^^^^^^^ not found in this scope
+
+error[E0405]: cannot find trait `FnMut` in this scope
+    --> vendor/smallvec/src/lib.rs:1642:12
+     |
+1642 |         F: FnMut() -> A::Item,
+     |            ^^^^^ not found in this scope
+
+error[E0405]: cannot find trait `Copy` in this scope
+    --> vendor/smallvec/src/lib.rs:1758:14
+     |
+1758 |     A::Item: Copy,
+     |              ^^^^ not found in this scope
+
+error[E0405]: cannot find trait `Clone` in this scope
+    --> vendor/smallvec/src/lib.rs:1822:14
+     |
+1822 |     A::Item: Clone,
+     |              ^^^^^ not found in this scope
+
+error[E0405]: cannot find trait `AsRef` in this scope
+    --> vendor/smallvec/src/lib.rs:1888:16
+     |
+1888 | impl<A: Array> AsRef<[A::Item]> for SmallVec<A> {
+     |                ^^^^^ not found in this scope
+
+error[E0405]: cannot find trait `AsMut` in this scope
+    --> vendor/smallvec/src/lib.rs:1895:16
+     |
+1895 | impl<A: Array> AsMut<[A::Item]> for SmallVec<A> {
+     |                ^^^^^ not found in this scope
+
+error[E0405]: cannot find trait `From` in this scope
+    --> vendor/smallvec/src/lib.rs:2046:20
+     |
+2046 | impl<'a, A: Array> From<&'a [A::Item]> for SmallVec<A>
+     |                    ^^^^ not found in this scope
+
+error[E0405]: cannot find trait `Clone` in this scope
+    --> vendor/smallvec/src/lib.rs:2048:14
+     |
+2048 |     A::Item: Clone,
+     |              ^^^^^ not found in this scope
+
+error[E0405]: cannot find trait `From` in this scope
+    --> vendor/smallvec/src/lib.rs:2063:16
+     |
+2063 | impl<A: Array> From<Vec<A::Item>> for SmallVec<A> {
+     |                ^^^^ not found in this scope
+
+error[E0405]: cannot find trait `From` in this scope
+    --> vendor/smallvec/src/lib.rs:2070:16
+     |
+2070 | impl<A: Array> From<A> for SmallVec<A> {
+     |                ^^^^ not found in this scope
+
+error[E0405]: cannot find trait `Copy` in this scope
+    --> vendor/smallvec/src/lib.rs:2094:14
+     |
+2094 |     A::Item: Copy,
+     |              ^^^^ not found in this scope
+
+error[E0405]: cannot find trait `Extend` in this scope
+    --> vendor/smallvec/src/lib.rs:2110:16
+     |
+2110 | impl<A: Array> Extend<A::Item> for SmallVec<A> {
+     |                ^^^^^^ not found in this scope
+
+error[E0531]: cannot find tuple struct or tuple variant `Some` in this scope
+    --> vendor/smallvec/src/lib.rs:2121:24
+     |
+2121 |                 if let Some(out) = iter.next() {
+     |                        ^^^^ not found in this scope
+
+error[E0405]: cannot find trait `Default` in this scope
+    --> vendor/smallvec/src/lib.rs:2145:16
+     |
+2145 | impl<A: Array> Default for SmallVec<A> {
+     |                ^^^^^^^ not found in this scope
+
+error[E0405]: cannot find trait `Drop` in this scope
+    --> vendor/smallvec/src/lib.rs:2167:16
+     |
+2167 | impl<A: Array> Drop for SmallVec<A> {
+     |                ^^^^ not found in this scope
+
+error[E0405]: cannot find trait `Clone` in this scope
+    --> vendor/smallvec/src/lib.rs:2180:16
+     |
+2180 | impl<A: Array> Clone for SmallVec<A>
+     |                ^^^^^ not found in this scope
+
+error[E0405]: cannot find trait `Clone` in this scope
+    --> vendor/smallvec/src/lib.rs:2182:14
+     |
+2182 |     A::Item: Clone,
+     |              ^^^^^ not found in this scope
+
+error[E0405]: cannot find trait `PartialEq` in this scope
+    --> vendor/smallvec/src/lib.rs:2205:26
+     |
+2205 | impl<A: Array, B: Array> PartialEq<SmallVec<B>> for SmallVec<A>
+     |                          ^^^^^^^^^ not found in this scope
+
+error[E0405]: cannot find trait `PartialEq` in this scope
+    --> vendor/smallvec/src/lib.rs:2207:14
+     |
+2207 |     A::Item: PartialEq<B::Item>,
+     |              ^^^^^^^^^ not found in this scope
+
+error[E0405]: cannot find trait `Eq` in this scope
+    --> vendor/smallvec/src/lib.rs:2215:16
+     |
+2215 | impl<A: Array> Eq for SmallVec<A> where A::Item: Eq {}
+     |                ^^ not found in this scope
+
+error[E0405]: cannot find trait `Eq` in this scope
+    --> vendor/smallvec/src/lib.rs:2215:50
+     |
+2215 | impl<A: Array> Eq for SmallVec<A> where A::Item: Eq {}
+     |                                                  ^^ not found in this scope
+
+error[E0405]: cannot find trait `PartialOrd` in this scope
+    --> vendor/smallvec/src/lib.rs:2217:16
+     |
+2217 | impl<A: Array> PartialOrd for SmallVec<A>
+     |                ^^^^^^^^^^ not found in this scope
+
+error[E0405]: cannot find trait `PartialOrd` in this scope
+    --> vendor/smallvec/src/lib.rs:2219:14
+     |
+2219 |     A::Item: PartialOrd,
+     |              ^^^^^^^^^^ not found in this scope
+
+error[E0412]: cannot find type `Option` in this scope
+    --> vendor/smallvec/src/lib.rs:2222:51
+     |
+2222 |     fn partial_cmp(&self, other: &SmallVec<A>) -> Option<cmp::Ordering> {
+     |                                                   ^^^^^^ not found in this scope
+
+error[E0405]: cannot find trait `Ord` in this scope
+    --> vendor/smallvec/src/lib.rs:2227:16
+     |
+2227 | impl<A: Array> Ord for SmallVec<A>
+     |                ^^^ not found in this scope
+
+error[E0405]: cannot find trait `Ord` in this scope
+    --> vendor/smallvec/src/lib.rs:2229:14
+     |
+2229 |     A::Item: Ord,
+     |              ^^^ not found in this scope
+
+error[E0405]: cannot find trait `Send` in this scope
+    --> vendor/smallvec/src/lib.rs:2246:23
+     |
+2246 | unsafe impl<A: Array> Send for SmallVec<A> where A::Item: Send {}
+     |                       ^^^^ not found in this scope
+
+error[E0405]: cannot find trait `Send` in this scope
+    --> vendor/smallvec/src/lib.rs:2246:59
+     |
+2246 | unsafe impl<A: Array> Send for SmallVec<A> where A::Item: Send {}
+     |                                                           ^^^^ not found in this scope
+
+error[E0405]: cannot find trait `Clone` in this scope
+    --> vendor/smallvec/src/lib.rs:2268:24
+     |
+2268 | impl<A: Array + Clone> Clone for IntoIter<A>
+     |                        ^^^^^ not found in this scope
+
+error[E0405]: cannot find trait `Clone` in this scope
+    --> vendor/smallvec/src/lib.rs:2268:17
+     |
+2268 | impl<A: Array + Clone> Clone for IntoIter<A>
+     |                 ^^^^^ not found in this scope
+
+error[E0405]: cannot find trait `Clone` in this scope
+    --> vendor/smallvec/src/lib.rs:2270:14
+     |
+2270 |     A::Item: Clone,
+     |              ^^^^^ not found in this scope
+
+error[E0405]: cannot find trait `Drop` in this scope
+    --> vendor/smallvec/src/lib.rs:2277:16
+     |
+2277 | impl<A: Array> Drop for IntoIter<A> {
+     |                ^^^^ not found in this scope
+
+error[E0405]: cannot find trait `Iterator` in this scope
+    --> vendor/smallvec/src/lib.rs:2283:16
+     |
+2283 | impl<A: Array> Iterator for IntoIter<A> {
+     |                ^^^^^^^^ not found in this scope
+
+error[E0412]: cannot find type `Option` in this scope
+    --> vendor/smallvec/src/lib.rs:2287:27
+     |
+2287 |     fn next(&mut self) -> Option<A::Item> {
+     |                           ^^^^^^ not found in this scope
+
+error[E0425]: cannot find value `None` in this scope
+    --> vendor/smallvec/src/lib.rs:2289:13
+     |
+2289 |             None
+     |             ^^^^ not found in this scope
+
+error[E0412]: cannot find type `Option` in this scope
+    --> vendor/smallvec/src/lib.rs:2300:36
+     |
+2300 |     fn size_hint(&self) -> (usize, Option<usize>) {
+     |                                    ^^^^^^ not found in this scope
+
+error[E0405]: cannot find trait `DoubleEndedIterator` in this scope
+    --> vendor/smallvec/src/lib.rs:2306:16
+     |
+2306 | impl<A: Array> DoubleEndedIterator for IntoIter<A> {
+     |                ^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0412]: cannot find type `Option` in this scope
+    --> vendor/smallvec/src/lib.rs:2308:32
+     |
+2308 |     fn next_back(&mut self) -> Option<A::Item> {
+     |                                ^^^^^^ not found in this scope
+
+error[E0425]: cannot find value `None` in this scope
+    --> vendor/smallvec/src/lib.rs:2310:13
+     |
+2310 |             None
+     |             ^^^^ not found in this scope
+
+error[E0405]: cannot find trait `ExactSizeIterator` in this scope
+    --> vendor/smallvec/src/lib.rs:2320:16
+     |
+2320 | impl<A: Array> ExactSizeIterator for IntoIter<A> {}
+     |                ^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0405]: cannot find trait `Drop` in this scope
+    --> vendor/smallvec/src/lib.rs:2406:10
+     |
+2406 | impl<'a> Drop for SetLenOnDrop<'a> {
+     |          ^^^^ not found in this scope
+
+error[E0405]: cannot find trait `Copy` in this scope
+    --> vendor/smallvec/src/lib.rs:2492:14
+     |
+2492 |     A::Item: Copy,
+     |              ^^^^ not found in this scope
+
+error[E0412]: cannot find type `Option` in this scope
+    --> vendor/smallvec/src/lib.rs:2506:30
+     |
+2506 |     fn new(ptr: *const T) -> Option<Self> {
+     |                              ^^^^^^ not found in this scope
+
+error[E0405]: cannot find trait `Clone` in this scope
+    --> vendor/smallvec/src/lib.rs:2515:9
+     |
+2515 | impl<T> Clone for ConstNonNull<T> {
+     |         ^^^^^ not found in this scope
+
+error[E0405]: cannot find trait `Copy` in this scope
+    --> vendor/smallvec/src/lib.rs:2522:9
+     |
+2522 | impl<T> Copy for ConstNonNull<T> {}
+     |         ^^^^ not found in this scope
+
+error[E0433]: failed to resolve: use of undeclared type `PartialOrd`
+    --> vendor/smallvec/src/lib.rs:2223:9
+     |
+2223 |         PartialOrd::partial_cmp(&**self, &**other)
+     |         ^^^^^^^^^^ use of undeclared type `PartialOrd`
+
+error[E0433]: failed to resolve: use of undeclared type `Ord`
+    --> vendor/smallvec/src/lib.rs:2233:9
+     |
+2233 |         Ord::cmp(&**self, &**other)
+     |         ^^^ use of undeclared type `Ord`
+
+error[E0425]: cannot find function, tuple struct or tuple variant `Some` in this scope
+    --> vendor/smallvec/src/lib.rs:1163:13
+     |
+1163 |             Some(ptr::read(ptr.add(last_index)))
+     |             ^^^^ not found in this scope
+
+error[E0425]: cannot find function, tuple struct or tuple variant `Ok` in this scope
+    --> vendor/smallvec/src/lib.rs:1204:28
+     |
+1204 |                     return Ok(());
+     |                            ^^ not found in this scope
+
+error[E0425]: cannot find function, tuple struct or tuple variant `Ok` in this scope
+    --> vendor/smallvec/src/lib.rs:1233:13
+     |
+1233 |             Ok(())
+     |             ^^ not found in this scope
+
+error[E0425]: cannot find function, tuple struct or tuple variant `Ok` in this scope
+    --> vendor/smallvec/src/lib.rs:1266:20
+     |
+1266 |             return Ok(());
+     |                    ^^ not found in this scope
+
+error[E0425]: cannot find function, tuple struct or tuple variant `Ok` in this scope
+    --> vendor/smallvec/src/lib.rs:1286:20
+     |
+1286 |             return Ok(());
+     |                    ^^ not found in this scope
+
+error[E0425]: cannot find function, tuple struct or tuple variant `Err` in this scope
+    --> vendor/smallvec/src/lib.rs:1529:13
+     |
+1529 |             Err(self)
+     |             ^^^------
+     |             |
+     |             help: try calling `Err` as a method: `self.Err()`
+
+error[E0425]: cannot find function, tuple struct or tuple variant `Ok` in this scope
+    --> vendor/smallvec/src/lib.rs:1534:17
+     |
+1534 |                 Ok(data.into_inline().assume_init())
+     |                 ^^ not found in this scope
+
+error[E0425]: cannot find function `drop` in this scope
+    --> vendor/smallvec/src/lib.rs:2172:17
+     |
+2172 |                 drop(Vec::from_raw_parts(ptr.as_ptr(), len, self.capacity));
+     |                 ^^^^ not found in this scope
+     |
+help: consider using the method on `Self`
+     |
+2172 |                 self.drop(Vec::from_raw_parts(ptr.as_ptr(), len, self.capacity));
+     |                 +++++
+
+error[E0425]: cannot find function, tuple struct or tuple variant `Some` in this scope
+    --> vendor/smallvec/src/lib.rs:2294:17
+     |
+2294 |                 Some(ptr::read(self.data.as_ptr().add(current)))
+     |                 ^^^^ not found in this scope
+
+error[E0425]: cannot find function, tuple struct or tuple variant `Some` in this scope
+    --> vendor/smallvec/src/lib.rs:2302:16
+     |
+2302 |         (size, Some(size))
+     |                ^^^^ not found in this scope
+
+error[E0425]: cannot find function, tuple struct or tuple variant `Some` in this scope
+    --> vendor/smallvec/src/lib.rs:2314:17
+     |
+2314 |                 Some(ptr::read(self.data.as_ptr().add(self.end)))
+     |                 ^^^^ not found in this scope
+
+Some errors have detailed explanations: E0405, E0412, E0425, E0433, E0463, E0531.
+For more information about an error, try `rustc --explain E0405`.
+error: could not compile `smallvec` (lib) due to 146 previous errors

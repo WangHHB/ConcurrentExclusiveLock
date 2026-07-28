@@ -56,21 +56,34 @@ impl Options {
             match argument.as_str() {
                 "-h" | "--help" => options.help = true,
                 "--lock-instances" => {
-                    options.lock_instances = parse_usize(take_value(&args, &mut index, argument)?, argument)?
+                    options.lock_instances =
+                        parse_usize(take_value(&args, &mut index, argument)?, argument)?
                 }
-                "--threads" => options.threads = parse_usize(take_value(&args, &mut index, argument)?, argument)?,
+                "--threads" => {
+                    options.threads =
+                        parse_usize(take_value(&args, &mut index, argument)?, argument)?
+                }
                 "--operations" => {
-                    options.operations = parse_usize(take_value(&args, &mut index, argument)?, argument)?
+                    options.operations =
+                        parse_usize(take_value(&args, &mut index, argument)?, argument)?
                 }
-                "--work" => common_work = Some(parse_usize(take_value(&args, &mut index, argument)?, argument)?),
+                "--work" => {
+                    common_work = Some(parse_usize(
+                        take_value(&args, &mut index, argument)?,
+                        argument,
+                    )?)
+                }
                 "--read-work" => {
-                    options.read_work = parse_usize(take_value(&args, &mut index, argument)?, argument)?
+                    options.read_work =
+                        parse_usize(take_value(&args, &mut index, argument)?, argument)?
                 }
                 "--write-work" => {
-                    options.write_work = parse_usize(take_value(&args, &mut index, argument)?, argument)?
+                    options.write_work =
+                        parse_usize(take_value(&args, &mut index, argument)?, argument)?
                 }
                 "--memory-mb" => {
-                    options.memory_mb = parse_usize(take_value(&args, &mut index, argument)?, argument)?
+                    options.memory_mb =
+                        parse_usize(take_value(&args, &mut index, argument)?, argument)?
                 }
                 "--workload" => {
                     let workload = take_value(&args, &mut index, argument)?;
@@ -83,9 +96,7 @@ impl Options {
                 "--full-semantics" | "--advanced-correctness" => {
                     set_mode(&mut options.mode, Mode::FullSemantics)?
                 }
-                "--pipeline-semantics" => {
-                    set_mode(&mut options.mode, Mode::PipelineSemantics)?
-                }
+                "--pipeline-semantics" => set_mode(&mut options.mode, Mode::PipelineSemantics)?,
                 "--pipeline-stress" => {
                     let duration = parse_duration(take_value(&args, &mut index, argument)?)?;
                     set_mode(&mut options.mode, Mode::PipelineStress(duration))?;
@@ -99,13 +110,16 @@ impl Options {
                     set_mode(&mut options.mode, Mode::Endurance(duration))?;
                 }
                 "--semantic-workers" => {
-                    options.semantic_workers = parse_usize(take_value(&args, &mut index, argument)?, argument)?
+                    options.semantic_workers =
+                        parse_usize(take_value(&args, &mut index, argument)?, argument)?
                 }
                 "--semantic-operations" => {
-                    options.semantic_operations = parse_usize(take_value(&args, &mut index, argument)?, argument)?
+                    options.semantic_operations =
+                        parse_usize(take_value(&args, &mut index, argument)?, argument)?
                 }
                 "--semantic-seed" => {
-                    options.semantic_seed = parse_u64(take_value(&args, &mut index, argument)?, argument)?
+                    options.semantic_seed =
+                        parse_u64(take_value(&args, &mut index, argument)?, argument)?
                 }
                 other => return Err(format!("unknown argument: {other}")),
             }
@@ -169,7 +183,10 @@ fn parse_usize(value: &str, name: &str) -> Result<usize, String> {
 
 fn parse_u64(value: &str, name: &str) -> Result<u64, String> {
     let trimmed = value.trim();
-    if let Some(hex) = trimmed.strip_prefix("0x").or_else(|| trimmed.strip_prefix("0X")) {
+    if let Some(hex) = trimmed
+        .strip_prefix("0x")
+        .or_else(|| trimmed.strip_prefix("0X"))
+    {
         u64::from_str_radix(hex, 16).map_err(|_| format!("invalid integer for {name}: {value}"))
     } else {
         trimmed
@@ -213,9 +230,15 @@ pub fn parse_duration(value: &str) -> Result<Duration, String> {
 
     let parts: Vec<&str> = value.split(':').collect();
     if parts.len() == 3 {
-        let hours = parts[0].parse::<u64>().map_err(|_| format!("invalid duration: {value}"))?;
-        let minutes = parts[1].parse::<u64>().map_err(|_| format!("invalid duration: {value}"))?;
-        let seconds = parts[2].parse::<u64>().map_err(|_| format!("invalid duration: {value}"))?;
+        let hours = parts[0]
+            .parse::<u64>()
+            .map_err(|_| format!("invalid duration: {value}"))?;
+        let minutes = parts[1]
+            .parse::<u64>()
+            .map_err(|_| format!("invalid duration: {value}"))?;
+        let seconds = parts[2]
+            .parse::<u64>()
+            .map_err(|_| format!("invalid duration: {value}"))?;
         return Ok(Duration::from_secs(
             hours.saturating_mul(3600) + minutes.saturating_mul(60) + seconds,
         ));

@@ -1,6 +1,4 @@
-use crate::{
-    ConcurrentExclusiveLock, ConcurrentExclusiveLockError, ConcurrentExclusiveLockScope,
-};
+use crate::{ConcurrentExclusiveLock, ConcurrentExclusiveLockError, ConcurrentExclusiveLockScope};
 
 /// The permission mode declared by a Pipeline segment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

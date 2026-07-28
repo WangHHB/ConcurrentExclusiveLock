@@ -16,18 +16,22 @@ if (-not (Test-Path $cargo) -and -not $cargoCommand) {
     throw "Cargo was not found. Install Rust with rustup and reopen PowerShell."
 }
 
-& $cargo test --release --workspace
-& $cargo run --release -p cel-test-and-benchmark -- `
+& $cargo test --release --workspace --offline
+& $cargo run --release --offline -p cel-test-and-benchmark -- `
     --full-semantics `
     --lock-instances $LockInstances `
     --semantic-workers $WorkersPerLock `
     --semantic-operations $Operations `
     --semantic-seed $Seed
 
-& $cargo run --release -p cel-test-and-benchmark -- --pipeline-semantics
+& $cargo run --release --offline -p cel-test-and-benchmark -- --pipeline-semantics
 
-& $cargo run --release -p cel-test-and-benchmark -- `
+& $cargo run --release --offline -p cel-test-and-benchmark -- `
     --pipeline-stress $PipelineStress `
     --lock-instances $LockInstances `
     --semantic-workers $WorkersPerLock `
     --semantic-seed $Seed
+
+& $cargo run --release --offline -p cel-test-and-benchmark -- `
+    --contention-stress 30s `
+    --semantic-workers 16

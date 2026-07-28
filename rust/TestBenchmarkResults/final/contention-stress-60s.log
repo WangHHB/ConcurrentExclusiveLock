@@ -1,0 +1,2 @@
+ConcurrentExclusiveLock Rust Exclusive contention stress
+PASS: workers=32, acquisitions=401719852, min/worker=11457115, max/worker=13382227

@@ -1,0 +1,10 @@
+   Compiling libc v0.2.189 (/mnt/data/rust_validation/ConcurrentExclusiveLock_Rust_Release/vendor/libc)
+   Compiling parking_lot_core v0.9.12 (/mnt/data/rust_validation/ConcurrentExclusiveLock_Rust_Release/vendor/parking_lot/core)
+   Compiling scopeguard v1.2.0 (/mnt/data/rust_validation/ConcurrentExclusiveLock_Rust_Release/vendor/scopeguard)
+   Compiling cfg-if v1.0.4 (/mnt/data/rust_validation/ConcurrentExclusiveLock_Rust_Release/vendor/cfg-if)
+   Compiling smallvec v1.15.2 (/mnt/data/rust_validation/ConcurrentExclusiveLock_Rust_Release/vendor/smallvec)
+   Compiling lock_api v0.4.14 (/mnt/data/rust_validation/ConcurrentExclusiveLock_Rust_Release/vendor/parking_lot/lock_api)
+   Compiling concurrent-exclusive-lock v1.0.0 (/mnt/data/rust_validation/ConcurrentExclusiveLock_Rust_Release/crates/concurrent-exclusive-lock)
+   Compiling parking_lot v0.12.5 (/mnt/data/rust_validation/ConcurrentExclusiveLock_Rust_Release/vendor/parking_lot)
+   Compiling cel-test-and-benchmark v1.0.0 (/mnt/data/rust_validation/ConcurrentExclusiveLock_Rust_Release/crates/test-and-benchmark)
+    Finished release [optimized] target(s) in 5.66s

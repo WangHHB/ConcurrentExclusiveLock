@@ -15,30 +15,29 @@
 //! Concurrent-to-Exclusive conversion are coordinated through a serialized,
 //! blocking monitor path. Strict FIFO ordering is not promised.
 //!
-//! The direct core API deliberately does not return an ownership token. Callers
-//! acquire and release through the lock object, like the C# and Java ports.
-//! [`ConcurrentExclusiveLockScope`] adds Rust RAII release management, while
-//! [`ConcurrentExclusiveLockPipeline`] provides synchronous permission-flow
-//! orchestration.
+//! Rust maps the reference implementation's internal `Monitor` directly to
+//! [`std::sync::Mutex`]. Because Rust unlocks a mutex by dropping its guard,
+//! Exclusive acquisition returns an [`ExclusiveGuard`] that must remain alive
+//! until release or downgrade. The lock state machine and transition order remain
+//! aligned with the C# reference implementation.
 
 #[cfg(not(target_has_atomic = "64"))]
 compile_error!("concurrent-exclusive-lock requires native 64-bit atomic support");
 
-mod monitor;
 mod pipeline;
 mod scope;
 
 pub use pipeline::{
-    ConcurrentExclusiveAccessMode, ConcurrentExclusiveLockPipeline,
-    ConcurrentExclusiveLockSegment, IDType,
+    ConcurrentExclusiveAccessMode, ConcurrentExclusiveLockPipeline, ConcurrentExclusiveLockSegment,
+    IDType,
 };
 pub use scope::ConcurrentExclusiveLockScope;
 
-use monitor::RawMonitor;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::hint::spin_loop;
 use std::sync::atomic::{AtomicI32, AtomicI64, Ordering};
+use std::sync::{Mutex, MutexGuard, TryLockError};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -83,6 +82,51 @@ impl Display for ConcurrentExclusiveLockError {
 
 impl Error for ConcurrentExclusiveLockError {}
 
+/// Ownership token for one acquired or upgraded Exclusive permission.
+///
+/// Dropping this value releases Exclusive permission. Use
+/// [`ConcurrentExclusiveLock::release_exclusive`] for an explicit release or
+/// [`ConcurrentExclusiveLock::exclusive_to_concurrent`] to downgrade while
+/// retaining Concurrent permission.
+#[must_use = "Exclusive permission is released when the guard is dropped"]
+pub struct ExclusiveGuard<'a> {
+    lock: &'a ConcurrentExclusiveLock,
+    monitor_guard: Option<MutexGuard<'a, ()>>,
+    active: bool,
+}
+
+impl ExclusiveGuard<'_> {
+    #[inline]
+    fn new<'a>(
+        lock: &'a ConcurrentExclusiveLock,
+        monitor_guard: MutexGuard<'a, ()>,
+    ) -> ExclusiveGuard<'a> {
+        ExclusiveGuard {
+            lock,
+            monitor_guard: Some(monitor_guard),
+            active: true,
+        }
+    }
+
+    #[inline]
+    fn disarm_and_unlock(&mut self) {
+        self.active = false;
+        drop(self.monitor_guard.take());
+    }
+}
+
+impl Drop for ExclusiveGuard<'_> {
+    #[inline]
+    fn drop(&mut self) {
+        if self.active {
+            self.lock.counter.fetch_sub(EXCLUSIVE_ADD, Ordering::SeqCst);
+            self.active = false;
+        }
+        // `monitor_guard` is dropped after this method body, matching the
+        // reference order: update Counter first, then Monitor.Exit.
+    }
+}
+
 /// A non-recursive Concurrent/Exclusive permission lock.
 ///
 /// `Concurrent` and `Exclusive` describe whether simultaneous access is
@@ -100,7 +144,7 @@ pub struct ConcurrentExclusiveLock {
     counter: AtomicI64,
     context_id: AtomicI32,
     epoch_id: AtomicI32,
-    monitor: RawMonitor,
+    monitor: Mutex<()>,
 }
 
 impl ConcurrentExclusiveLock {
@@ -111,7 +155,7 @@ impl ConcurrentExclusiveLock {
             counter: AtomicI64::new(0),
             context_id: AtomicI32::new(0),
             epoch_id: AtomicI32::new(0),
-            monitor: RawMonitor::new(),
+            monitor: Mutex::new(()),
         }
     }
 
@@ -220,8 +264,7 @@ impl ConcurrentExclusiveLock {
                 adjust_turn += 1;
                 if adjust_turn == 1 {
                     if counter < EXCLUSIVE_ADD * 2 {
-                        self.monitor.lock();
-                        self.monitor.unlock();
+                        drop(lock_no_poison(&self.monitor));
                     } else {
                         thread::yield_now();
                     }
@@ -252,9 +295,7 @@ impl ConcurrentExclusiveLock {
     }
 
     /// Makes one immediate attempt to acquire ordinary Concurrent permission.
-    pub fn try_acquire_concurrent(
-        &self,
-    ) -> Result<Option<i32>, ConcurrentExclusiveLockError> {
+    pub fn try_acquire_concurrent(&self) -> Result<Option<i32>, ConcurrentExclusiveLockError> {
         self.try_acquire_concurrent_with_max(MAX_CONCURRENT)
     }
 
@@ -321,8 +362,8 @@ impl ConcurrentExclusiveLock {
                         let Some(remaining) = remaining(deadline) else {
                             return Ok(None);
                         };
-                        if self.monitor.try_lock_for(remaining) {
-                            self.monitor.unlock();
+                        if let Some(guard) = try_lock_for(&self.monitor, remaining) {
+                            drop(guard);
                         } else {
                             return Ok(None);
                         }
@@ -373,15 +414,15 @@ impl ConcurrentExclusiveLock {
 
     /// Waits to acquire preemptive Exclusive permission.
     ///
-    /// The internal monitor remains held until [`Self::release_exclusive`] or
-    /// [`Self::exclusive_to_concurrent`] is called on the same thread.
-    pub fn acquire_exclusive(&self) {
+    /// The returned guard owns the standard-library mutex until it is released,
+    /// dropped, or consumed by [`Self::exclusive_to_concurrent`].
+    pub fn acquire_exclusive(&self) -> ExclusiveGuard<'_> {
         let mut adjust_turn = 0_i32;
 
         'redo: loop {
-            self.monitor.lock();
-            let mut counter = self.counter.fetch_add(EXCLUSIVE_ADD, Ordering::SeqCst)
-                + EXCLUSIVE_ADD;
+            let monitor_guard = lock_no_poison(&self.monitor);
+            let mut counter =
+                self.counter.fetch_add(EXCLUSIVE_ADD, Ordering::SeqCst) + EXCLUSIVE_ADD;
             if counter != EXCLUSIVE_ADD {
                 if counter < EXCLUSIVE_ADD * 2 {
                     while {
@@ -392,39 +433,39 @@ impl ConcurrentExclusiveLock {
                             adjust_wait(&mut adjust_turn);
                         } else {
                             self.counter.fetch_sub(EXCLUSIVE_ADD, Ordering::SeqCst);
-                            self.monitor.unlock();
+                            drop(monitor_guard);
                             thread::yield_now();
                             continue 'redo;
                         }
                     }
                 } else {
                     self.counter.fetch_sub(EXCLUSIVE_ADD, Ordering::SeqCst);
-                    self.monitor.unlock();
+                    drop(monitor_guard);
                     thread::yield_now();
                     continue 'redo;
                 }
             }
-            return;
+            return ExclusiveGuard::new(self, monitor_guard);
         }
     }
 
     /// Attempts to acquire Exclusive permission.
     ///
     /// With `preempt_concurrent = true`, the request may wait for existing
-    /// Concurrent holders, but it returns `false` when another Exclusive request
+    /// Concurrent holders, but it returns `None` when another Exclusive request
     /// is already visible or when an in-place upgrade appears during contention.
     /// With `false`, it makes an immediate Idle-only attempt.
-    pub fn try_acquire_exclusive(&self, preempt_concurrent: bool) -> bool {
+    pub fn try_acquire_exclusive(&self, preempt_concurrent: bool) -> Option<ExclusiveGuard<'_>> {
         let mut adjust_turn = 0_i32;
 
         if preempt_concurrent {
             if self.counter.load(Ordering::Acquire) >= EXCLUSIVE_ADD {
-                return false;
+                return None;
             }
 
-            self.monitor.lock();
-            let mut counter = self.counter.fetch_add(EXCLUSIVE_ADD, Ordering::SeqCst)
-                + EXCLUSIVE_ADD;
+            let monitor_guard = lock_no_poison(&self.monitor);
+            let mut counter =
+                self.counter.fetch_add(EXCLUSIVE_ADD, Ordering::SeqCst) + EXCLUSIVE_ADD;
             if counter != EXCLUSIVE_ADD {
                 if counter < EXCLUSIVE_ADD * 2 {
                     while {
@@ -435,56 +476,49 @@ impl ConcurrentExclusiveLock {
                             adjust_wait(&mut adjust_turn);
                         } else {
                             self.counter.fetch_sub(EXCLUSIVE_ADD, Ordering::SeqCst);
-                            self.monitor.unlock();
-                            return false;
+                            drop(monitor_guard);
+                            return None;
                         }
                     }
-                    return true;
+                    return Some(ExclusiveGuard::new(self, monitor_guard));
                 }
                 self.counter.fetch_sub(EXCLUSIVE_ADD, Ordering::SeqCst);
-                self.monitor.unlock();
-                return false;
+                drop(monitor_guard);
+                return None;
             }
-            true
+            Some(ExclusiveGuard::new(self, monitor_guard))
         } else {
-            if !self.monitor.try_lock() {
-                return false;
-            }
+            let monitor_guard = try_lock_no_poison(&self.monitor)?;
             if self
                 .counter
                 .compare_exchange(0, EXCLUSIVE_ADD, Ordering::SeqCst, Ordering::Acquire)
                 .is_ok()
             {
-                true
+                Some(ExclusiveGuard::new(self, monitor_guard))
             } else {
-                self.monitor.unlock();
-                false
+                drop(monitor_guard);
+                None
             }
         }
     }
 
     /// Attempts to acquire preemptive Exclusive permission within `timeout`.
-    pub fn try_acquire_exclusive_for(&self, timeout: Duration) -> bool {
+    pub fn try_acquire_exclusive_for(&self, timeout: Duration) -> Option<ExclusiveGuard<'_>> {
         if timeout.is_zero() {
             return self.try_acquire_exclusive(false);
         }
 
         let Some(deadline) = Instant::now().checked_add(timeout) else {
-            self.acquire_exclusive();
-            return true;
+            return Some(self.acquire_exclusive());
         };
         let mut adjust_turn = 0_i32;
 
         'redo: loop {
-            let Some(remaining) = remaining(deadline) else {
-                return false;
-            };
-            if !self.monitor.try_lock_for(remaining) {
-                return false;
-            }
+            let remaining = remaining(deadline)?;
+            let monitor_guard = try_lock_for(&self.monitor, remaining)?;
 
-            let mut counter = self.counter.fetch_add(EXCLUSIVE_ADD, Ordering::SeqCst)
-                + EXCLUSIVE_ADD;
+            let mut counter =
+                self.counter.fetch_add(EXCLUSIVE_ADD, Ordering::SeqCst) + EXCLUSIVE_ADD;
             if counter != EXCLUSIVE_ADD {
                 if counter < EXCLUSIVE_ADD * 2 {
                     while {
@@ -494,88 +528,77 @@ impl ConcurrentExclusiveLock {
                         if counter < EXCLUSIVE_ADD * 2 {
                             if deadline_expired(deadline) {
                                 self.counter.fetch_sub(EXCLUSIVE_ADD, Ordering::SeqCst);
-                                self.monitor.unlock();
-                                return false;
+                                drop(monitor_guard);
+                                return None;
                             }
                             adjust_wait(&mut adjust_turn);
                         } else {
                             self.counter.fetch_sub(EXCLUSIVE_ADD, Ordering::SeqCst);
-                            self.monitor.unlock();
+                            drop(monitor_guard);
                             thread::yield_now();
                             if deadline_expired(deadline) {
-                                return false;
+                                return None;
                             }
                             continue 'redo;
                         }
                     }
-                    return true;
+                    return Some(ExclusiveGuard::new(self, monitor_guard));
                 }
 
                 self.counter.fetch_sub(EXCLUSIVE_ADD, Ordering::SeqCst);
-                self.monitor.unlock();
+                drop(monitor_guard);
                 thread::yield_now();
                 if deadline_expired(deadline) {
-                    return false;
+                    return None;
                 }
                 continue 'redo;
             }
-            return true;
+            return Some(ExclusiveGuard::new(self, monitor_guard));
         }
     }
 
     /// Releases currently held Exclusive permission.
-    ///
-    /// This must be called by the thread that acquired or upgraded to Exclusive.
     #[inline]
-    pub fn release_exclusive(&self) {
-        self.counter.fetch_sub(EXCLUSIVE_ADD, Ordering::SeqCst);
-        self.monitor.unlock();
+    pub fn release_exclusive(&self, guard: ExclusiveGuard<'_>) {
+        debug_assert!(std::ptr::eq(self, guard.lock));
+        drop(guard);
     }
 
     /// Downgrades currently held Exclusive permission to Concurrent permission.
     ///
     /// The caller continues to hold Concurrent permission and must later call
-    /// [`Self::release_concurrent`]. Under upgrade contention, the current access
-    /// context may be split and Concurrent permission reacquired so remaining
-    /// upgrade requests can continue.
+    /// [`Self::release_concurrent`].
     #[inline]
-    pub fn exclusive_to_concurrent(&self) {
+    pub fn exclusive_to_concurrent(&self, mut guard: ExclusiveGuard<'_>) {
+        debug_assert!(std::ptr::eq(self, guard.lock));
         let counter = self.counter.fetch_sub(CONVERGE_ADD, Ordering::SeqCst) - CONVERGE_ADD;
-        self.monitor.unlock();
+        guard.disarm_and_unlock();
         if counter >= EXCLUSIVE_ADD {
             self.counter.fetch_sub(1, Ordering::SeqCst);
-            // Default max cannot fail except for the documented theoretical
-            // capacity boundary, which is unreachable after releasing one slot.
-            self.acquire_concurrent().expect(
-                "reacquiring Concurrent after releasing one slot cannot exceed capacity",
-            );
+            self.acquire_concurrent()
+                .expect("reacquiring Concurrent after releasing one slot cannot exceed capacity");
         }
     }
 
     /// Upgrades currently held Concurrent permission to Exclusive permission.
-    ///
-    /// Upgrade requests take priority over ordinary Exclusive requests and their
-    /// resulting Exclusive regions execute serially.
     #[inline]
-    pub fn concurrent_to_exclusive(&self) {
+    pub fn concurrent_to_exclusive(&self) -> ExclusiveGuard<'_> {
         let mut adjust_turn = 0_i32;
         if low_i32(self.counter.fetch_add(CONVERGE_ADD, Ordering::SeqCst) + CONVERGE_ADD) != 0 {
             while low_i32(self.counter.load(Ordering::Acquire)) != 0 {
                 adjust_wait2(&mut adjust_turn);
             }
         }
-        self.monitor.lock();
+        ExclusiveGuard::new(self, lock_no_poison(&self.monitor))
     }
 
     /// While holding Concurrent permission, conditionally upgrades by switching
-    /// ContextID.
-    ///
-    /// On failure, the original Concurrent permission is released automatically.
+    /// ContextID. On failure, the original Concurrent permission is released.
     #[inline]
     pub fn try_concurrent_to_exclusive_with_switch_context_id(
         &self,
         new_context_id: i32,
-    ) -> bool {
+    ) -> Option<ExclusiveGuard<'_>> {
         let mut adjust_turn = 0_i32;
         if low_i32(self.counter.fetch_add(CONVERGE_ADD, Ordering::SeqCst) + CONVERGE_ADD) != 0 {
             while low_i32(self.counter.load(Ordering::Acquire)) != 0 {
@@ -583,23 +606,20 @@ impl ConcurrentExclusiveLock {
             }
         }
         if self.switch_context_id(new_context_id) {
-            self.monitor.lock();
-            true
+            Some(ExclusiveGuard::new(self, lock_no_poison(&self.monitor)))
         } else {
             self.counter.fetch_sub(EXCLUSIVE_ADD, Ordering::SeqCst);
-            false
+            None
         }
     }
 
     /// While holding Concurrent permission, conditionally upgrades by advancing
-    /// EpochID.
-    ///
-    /// On failure, the original Concurrent permission is released automatically.
+    /// EpochID. On failure, the original Concurrent permission is released.
     #[inline]
     pub fn try_concurrent_to_exclusive_with_raise_epoch_id(
         &self,
         new_epoch_id: i32,
-    ) -> bool {
+    ) -> Option<ExclusiveGuard<'_>> {
         let mut adjust_turn = 0_i32;
         if low_i32(self.counter.fetch_add(CONVERGE_ADD, Ordering::SeqCst) + CONVERGE_ADD) != 0 {
             while low_i32(self.counter.load(Ordering::Acquire)) != 0 {
@@ -607,19 +627,46 @@ impl ConcurrentExclusiveLock {
             }
         }
         if self.raise_epoch_id(new_epoch_id) {
-            self.monitor.lock();
-            true
+            Some(ExclusiveGuard::new(self, lock_no_poison(&self.monitor)))
         } else {
             self.counter.fetch_sub(EXCLUSIVE_ADD, Ordering::SeqCst);
-            false
+            None
         }
     }
 
-    pub(crate) fn free_release(&self, delta: i64) {
-        self.counter.fetch_add(delta, Ordering::SeqCst);
-        if delta <= -EXCLUSIVE_ADD {
-            self.monitor.unlock();
+    #[inline]
+    pub(crate) fn free_release_concurrent(&self, count: i64) {
+        self.counter.fetch_sub(count, Ordering::SeqCst);
+    }
+}
+
+#[inline]
+fn lock_no_poison(mutex: &Mutex<()>) -> MutexGuard<'_, ()> {
+    mutex
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+#[inline]
+fn try_lock_no_poison(mutex: &Mutex<()>) -> Option<MutexGuard<'_, ()>> {
+    match mutex.try_lock() {
+        Ok(guard) => Some(guard),
+        Err(TryLockError::Poisoned(poisoned)) => Some(poisoned.into_inner()),
+        Err(TryLockError::WouldBlock) => None,
+    }
+}
+
+fn try_lock_for(mutex: &Mutex<()>, timeout: Duration) -> Option<MutexGuard<'_, ()>> {
+    let deadline = Instant::now().checked_add(timeout)?;
+    let mut adjust_turn = 0_i32;
+    loop {
+        if let Some(guard) = try_lock_no_poison(mutex) {
+            return Some(guard);
         }
+        if deadline_expired(deadline) {
+            return None;
+        }
+        adjust_wait(&mut adjust_turn);
     }
 }
 

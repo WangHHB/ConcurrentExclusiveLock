@@ -24,9 +24,7 @@ fn run() -> Result<(), String> {
         Mode::FullSemantics => semantic::run_full(&options),
         Mode::PipelineSemantics => semantic::run_pipeline_semantics(),
         Mode::PipelineStress(duration) => semantic::run_pipeline_stress(&options, duration),
-        Mode::ContentionStress(duration) => {
-            semantic::run_contention_stress(&options, duration)
-        }
+        Mode::ContentionStress(duration) => semantic::run_contention_stress(&options, duration),
         Mode::Endurance(duration) => semantic::run_endurance(&options, duration),
     }
     Ok(())

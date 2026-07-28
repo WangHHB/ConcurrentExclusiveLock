@@ -1,6 +1,7 @@
 use crate::options::Options;
 use crate::workload::{create_worker_seed, next_random, MemoryWork};
 use concurrent_exclusive_lock::ConcurrentExclusiveLock;
+use parking_lot::{Mutex as ParkingMutex, RwLock as ParkingRwLock};
 use std::cell::UnsafeCell;
 use std::hint::black_box;
 use std::sync::{Arc, Barrier, Mutex, RwLock};
@@ -20,22 +21,28 @@ const SCENARIOS: &[(u16, &str)] = &[
 enum StrategyKind {
     Mutex,
     RwLock,
+    ParkingMutex,
+    ParkingRwLock,
     Cel,
     CelExclusiveOnly,
 }
 
 impl StrategyKind {
-    const ALL: [Self; 4] = [
+    const ALL: [Self; 6] = [
         Self::Mutex,
         Self::RwLock,
+        Self::ParkingMutex,
+        Self::ParkingRwLock,
         Self::Cel,
         Self::CelExclusiveOnly,
     ];
 
     fn name(self) -> &'static str {
         match self {
-            Self::Mutex => "Mutex",
-            Self::RwLock => "RwLock",
+            Self::Mutex => "std::sync::Mutex",
+            Self::RwLock => "std::sync::RwLock",
+            Self::ParkingMutex => "parking_lot::Mutex",
+            Self::ParkingRwLock => "parking_lot::RwLock",
             Self::Cel => "CEL",
             Self::CelExclusiveOnly => "CEL(ExclusiveOnly)",
         }
@@ -106,6 +113,46 @@ impl Strategy for RwLockStrategy {
     }
 }
 
+struct ParkingMutexStrategy {
+    work: ParkingMutex<MemoryWork>,
+}
+
+impl Strategy for ParkingMutexStrategy {
+    #[inline]
+    fn execute_read(&self, random: &mut u32) -> i64 {
+        self.work.lock().tick_read(random)
+    }
+
+    #[inline]
+    fn execute_write(&self) -> i64 {
+        self.work.lock().tick_write()
+    }
+
+    fn state_hash(&self) -> i64 {
+        self.work.lock().state_hash()
+    }
+}
+
+struct ParkingRwLockStrategy {
+    work: ParkingRwLock<MemoryWork>,
+}
+
+impl Strategy for ParkingRwLockStrategy {
+    #[inline]
+    fn execute_read(&self, random: &mut u32) -> i64 {
+        self.work.read().tick_read(random)
+    }
+
+    #[inline]
+    fn execute_write(&self) -> i64 {
+        self.work.write().tick_write()
+    }
+
+    fn state_hash(&self) -> i64 {
+        self.work.read().state_hash()
+    }
+}
+
 struct CelWork {
     lock: ConcurrentExclusiveLock,
     work: UnsafeCell<MemoryWork>,
@@ -120,15 +167,15 @@ impl Strategy for CelWork {
     #[inline]
     fn execute_read(&self, random: &mut u32) -> i64 {
         if self.exclusive_only {
-            self.lock.acquire_exclusive();
-            let result = unsafe { (&*self.work.get()).tick_read(random) };
-            self.lock.release_exclusive();
+            let guard = self.lock.acquire_exclusive();
+            let result = unsafe { (*self.work.get()).tick_read(random) };
+            self.lock.release_exclusive(guard);
             result
         } else {
             self.lock
                 .acquire_concurrent()
                 .expect("Concurrent capacity cannot be reached by the benchmark");
-            let result = unsafe { (&*self.work.get()).tick_read(random) };
+            let result = unsafe { (*self.work.get()).tick_read(random) };
             self.lock.release_concurrent();
             result
         }
@@ -136,16 +183,16 @@ impl Strategy for CelWork {
 
     #[inline]
     fn execute_write(&self) -> i64 {
-        self.lock.acquire_exclusive();
-        let result = unsafe { (&mut *self.work.get()).tick_write() };
-        self.lock.release_exclusive();
+        let guard = self.lock.acquire_exclusive();
+        let result = unsafe { (*self.work.get()).tick_write() };
+        self.lock.release_exclusive(guard);
         result
     }
 
     fn state_hash(&self) -> i64 {
-        self.lock.acquire_exclusive();
-        let state = unsafe { (&*self.work.get()).state_hash() };
-        self.lock.release_exclusive();
+        let guard = self.lock.acquire_exclusive();
+        let state = unsafe { (*self.work.get()).state_hash() };
+        self.lock.release_exclusive(guard);
         state
     }
 }
@@ -195,7 +242,14 @@ pub fn run(options: &Options) {
         println!("Scenario: read/write {label}");
         println!(
             "  {:<24} {:>10} {:>14} {:>14} {:>14} {:>13} {:>13} {:>18}",
-            "lock type", "elapsed", "works/s", "works/s/lock", "avg write ns", "reads", "writes", "state"
+            "lock type",
+            "elapsed",
+            "works/s",
+            "works/s/lock",
+            "avg write ns",
+            "reads",
+            "writes",
+            "state"
         );
 
         let mut expected_state = None;
@@ -328,6 +382,12 @@ fn create_strategy(kind: StrategyKind, options: &Options) -> Arc<dyn Strategy> {
         }),
         StrategyKind::RwLock => Arc::new(RwLockStrategy {
             work: RwLock::new(work),
+        }),
+        StrategyKind::ParkingMutex => Arc::new(ParkingMutexStrategy {
+            work: ParkingMutex::new(work),
+        }),
+        StrategyKind::ParkingRwLock => Arc::new(ParkingRwLockStrategy {
+            work: ParkingRwLock::new(work),
         }),
         StrategyKind::Cel => Arc::new(CelWork {
             lock: ConcurrentExclusiveLock::new(),

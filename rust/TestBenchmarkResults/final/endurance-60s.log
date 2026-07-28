@@ -1,0 +1,406 @@
+ConcurrentExclusiveLock Rust endurance
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 2941885 randomized Pipeline rounds, 16754016 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 2887433 randomized Pipeline rounds, 16478022 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 3028107 randomized Pipeline rounds, 17338815 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 2895660 randomized Pipeline rounds, 16630167 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 3495709 randomized Pipeline rounds, 19620894 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 4005167 randomized Pipeline rounds, 22512530 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 3775404 randomized Pipeline rounds, 21409568 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 4333598 randomized Pipeline rounds, 24460541 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 4010292 randomized Pipeline rounds, 22483632 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 3971540 randomized Pipeline rounds, 22438498 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 4020069 randomized Pipeline rounds, 22581409 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 3995397 randomized Pipeline rounds, 22728151 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 4407105 randomized Pipeline rounds, 24606822 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 4347911 randomized Pipeline rounds, 24498705 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 3999799 randomized Pipeline rounds, 22261436 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 3990464 randomized Pipeline rounds, 22405569 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 4175394 randomized Pipeline rounds, 23561447 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 3338384 randomized Pipeline rounds, 19159791 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 3123456 randomized Pipeline rounds, 17848813 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 3168261 randomized Pipeline rounds, 17983862 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 3187144 randomized Pipeline rounds, 18299371 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 3306537 randomized Pipeline rounds, 18968080 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 3257109 randomized Pipeline rounds, 18553807 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 3016408 randomized Pipeline rounds, 17279158 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 2928815 randomized Pipeline rounds, 16884982 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 2826624 randomized Pipeline rounds, 16311255 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 2906119 randomized Pipeline rounds, 16676034 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 3297894 randomized Pipeline rounds, 18596790 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 3335230 randomized Pipeline rounds, 18798404 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 2960743 randomized Pipeline rounds, 16929048 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 3073337 randomized Pipeline rounds, 17531569 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 2884674 randomized Pipeline rounds, 16630449 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 2892086 randomized Pipeline rounds, 16559457 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 2837080 randomized Pipeline rounds, 16314477 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 3162951 randomized Pipeline rounds, 18018898 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 2982506 randomized Pipeline rounds, 17090317 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 2866328 randomized Pipeline rounds, 16481570 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 2877844 randomized Pipeline rounds, 16427570 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 2990765 randomized Pipeline rounds, 17154747 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 3132690 randomized Pipeline rounds, 17871468 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 3128852 randomized Pipeline rounds, 17958878 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 2945294 randomized Pipeline rounds, 17021434 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 3179351 randomized Pipeline rounds, 18254338 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 3840677 randomized Pipeline rounds, 21545200 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 3378450 randomized Pipeline rounds, 19226802 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 3724170 randomized Pipeline rounds, 20944784 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 3245286 randomized Pipeline rounds, 18513535 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 3019182 randomized Pipeline rounds, 17243043 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 3430255 randomized Pipeline rounds, 19354184 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 3131215 randomized Pipeline rounds, 17820903 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 3361532 randomized Pipeline rounds, 19023032 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 3057540 randomized Pipeline rounds, 17489436 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 3216475 randomized Pipeline rounds, 18267367 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 3840329 randomized Pipeline rounds, 21557186 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 3756521 randomized Pipeline rounds, 20995009 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 2864626 randomized Pipeline rounds, 16401474 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+ConcurrentExclusiveLock Rust Pipeline stress
+duration=1s, locks=2, workers/lock=4, seed=0x6A09E667F3BCC909
+PASS: 3193953 randomized Pipeline rounds, 18124113 validated callbacks
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+PASS: endurance completed 58 deterministic batches

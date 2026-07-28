@@ -1,0 +1,29 @@
+   Compiling cel-test-and-benchmark v1.0.0 (/mnt/data/rust_validation/ConcurrentExclusiveLock_Rust_Release/crates/test-and-benchmark)
+    Finished release [optimized] target(s) in 3.31s
+     Running unittests src/main.rs (target/release/deps/cel_test_and_benchmark-a544a2eaacad7a27)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/release/deps/concurrent_exclusive_lock-abf9f776a26b84db)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/protocol.rs (target/release/deps/protocol-96e4ce0891c67eef)
+
+running 3 tests
+test pipeline_skips_failed_business_id_and_continues_from_none ... ok
+test conditional_upgrade_has_one_winner_and_releases_failures ... ok
+test concurrent_regions_overlap_but_exclusive_does_not ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests concurrent_exclusive_lock
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

@@ -26,7 +26,7 @@ Rust 版保留的核心能力包括：
 
 1. C# 是协议语义参考实现；
 2. Rust 不重新设计权限模型；
-3. 核心锁采用直接对象调用，不返回 ownership token；
+3. Concurrent 仍采用直接对象协议；Rust 仅为必须跨业务区持有的标准 `MutexGuard` 引入 `ExclusiveGuard`；
 4. Concurrent ID 是本轮并发进入编号，不是释放凭证；
 5. 不增加 ticket、公平队列或严格 FIFO；
 6. Scope 只负责 RAII 生命周期，不改变底层协议；
@@ -40,6 +40,9 @@ rust/
 ├─ crates/
 │  ├─ concurrent-exclusive-lock/   # 核心库、Scope、Pipeline
 │  └─ test-and-benchmark/           # 语义测试、压力测试、性能对比
+├─ vendor/                          # parking_lot 及离线依赖，仅供评测程序使用
+├─ TestBenchmarkResults/           # 原始测试日志与 CSV/JSON
+├─ Artifacts/                       # 已构建可执行文件
 ├─ Cargo.toml                       # Cargo Workspace
 ├─ README.md
 ├─ README_CN.md
@@ -48,6 +51,7 @@ rust/
 ├─ PERFORMANCE.md
 ├─ PERFORMANCE_CN.md
 ├─ VERIFICATION.md
+├─ THIRD_PARTY_NOTICES.md             # 内置评测依赖版本与许可证
 ├─ build.ps1
 ├─ run-tests.ps1
 └─ run-benchmark.ps1
@@ -82,24 +86,20 @@ Exclusive 请求进入竞争窗口后，会在计数器高位登记 Exclusive �
 
 ### 内部 Monitor
 
-Rust 标准库没有可脱离 Guard、跨方法直接 `lock()/unlock()` 的公共原始 Mutex API。为了保持与 C# / Java 一样的直接锁对象接口，本项目在纯 Rust 标准库之上实现了内部 `RawMonitor`：
+C# 原作的 `Monitor` 直接映射为 Rust 标准库的
+`std::sync::Mutex<()>`。Rust 通过释放 `MutexGuard` 解锁，因此 Exclusive
+获取返回 `ExclusiveGuard`，由它在整个 Exclusive 业务区内持有真实的标准
+`MutexGuard`。不再增加 `RawMonitor`、持有状态原子量、等待者计数、
+`Condvar` 或自定义公平策略。
 
-```text
-AtomicBool      记录 Monitor 是否持有
-AtomicUsize     记录等待压力
-Mutex + Condvar 提供阻塞等待与唤醒
-```
+Rust 唯一必要的接口差异是：
 
-这个 Monitor：
+- `acquire_exclusive()` 返回 `ExclusiveGuard`；
+- 显式释放需要消费这个 Guard；
+- 降级需要消费 Guard，并继续保留 Concurrent 权限；
+- Guard 被丢弃时自动安全释放 Exclusive。
 
-- 非递归；
-- 可跨 `acquire_exclusive()` 与 `release_exclusive()` 方法保持持有状态；
-- 让 Exclusive / 升级竞争进入同一个串行阻塞慢路径；
-- 使用等待者计数抑制无约束插队；
-- 不建立 ticket 队列；
-- 不承诺严格 FIFO。
-
-它追求的是与 C# `Monitor` 相同类型的综合平衡：具有实用顺序性和阻塞调度，但不为了“绝对公平”牺牲吞吐和可用性。
+Counter 状态机、升级优先级、分支顺序和释放顺序仍与 C# 原作对齐。
 
 ### 升级优先关系
 
@@ -139,13 +139,13 @@ cargo --version
 在 `rust` 目录执行：
 
 ```powershell
-cargo build --release --workspace
+cargo build --release --workspace --offline
 ```
 
 运行 Cargo 测试：
 
 ```powershell
-cargo test --release --workspace
+cargo test --release --workspace --offline
 ```
 
 也可以执行：
@@ -161,7 +161,25 @@ target\release\cel-test-and-benchmark.exe   # Windows
 target/release/cel-test-and-benchmark       # Linux/macOS
 ```
 
-本 Workspace 没有第三方 crate 依赖，核心库和测试程序都可以在 Cargo 缓存为空时离线构建。
+本发布包同时包含已在本测试环境构建并验证的 Linux x64 可执行文件：
+
+```text
+Artifacts/linux-x64/cel-test-and-benchmark
+```
+
+同时包含已通过 `cargo package` 验证的核心 crate 包：
+
+```text
+Artifacts/crate/concurrent-exclusive-lock-1.0.0.crate
+```
+
+Windows 用户执行 `build-windows.ps1` 后，脚本会把 `.exe` 复制到：
+
+```text
+Artifacts\windows-x64\cel-test-and-benchmark.exe
+```
+
+核心库 crate 本身没有第三方依赖。内置评测依赖的版本与许可证见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。评测程序依赖 `parking_lot 0.12.5`，其源码及所需依赖已放入 `vendor/`，因此整个 Workspace 仍可在 Cargo registry 为空时使用 `--offline` 构建。
 
 ---
 
@@ -223,11 +241,11 @@ lock.release_concurrent();
 ### Exclusive
 
 ```rust
-lock.acquire_exclusive();
+let guard = lock.acquire_exclusive();
 
 // 当前线程独占访问。
 
-lock.release_exclusive();
+lock.release_exclusive(guard);
 ```
 
 Exclusive 是线程关联的：获取、释放或降级必须发生在同一线程。
@@ -260,9 +278,9 @@ if let Some(id) = lock.try_acquire_concurrent_for(Duration::from_millis(100))? {
 抢占式 Try：
 
 ```rust
-if lock.try_acquire_exclusive(true) {
+if let Some(guard) = lock.try_acquire_exclusive(true) {
     // 已获得 Exclusive。
-    lock.release_exclusive();
+    lock.release_exclusive(guard);
 }
 ```
 
@@ -271,8 +289,8 @@ if lock.try_acquire_exclusive(true) {
 Idle-only 测试：
 
 ```rust
-if lock.try_acquire_exclusive(false) {
-    lock.release_exclusive();
+if let Some(guard) = lock.try_acquire_exclusive(false) {
+    lock.release_exclusive(guard);
 }
 ```
 
@@ -281,8 +299,8 @@ if lock.try_acquire_exclusive(false) {
 带超时的抢占式 Exclusive：
 
 ```rust
-if lock.try_acquire_exclusive_for(Duration::from_millis(100)) {
-    lock.release_exclusive();
+if let Some(guard) = lock.try_acquire_exclusive_for(Duration::from_millis(100)) {
+    lock.release_exclusive(guard);
 }
 ```
 
@@ -299,11 +317,11 @@ lock.acquire_concurrent()?;
 
 // Concurrent 阶段。
 
-lock.concurrent_to_exclusive();
+let guard = lock.concurrent_to_exclusive();
 
 // 连续进入 Exclusive 阶段，没有先释放 Concurrent 再抢锁的窗口。
 
-lock.release_exclusive();
+lock.release_exclusive(guard);
 # Ok::<(), concurrent_exclusive_lock::ConcurrentExclusiveLockError>(())
 ```
 
@@ -312,11 +330,11 @@ lock.release_exclusive();
 ### Exclusive → Concurrent
 
 ```rust
-lock.acquire_exclusive();
+let guard = lock.acquire_exclusive();
 
 // Exclusive 修改阶段。
 
-lock.exclusive_to_concurrent();
+lock.exclusive_to_concurrent(guard);
 
 // 当前线程继续持有 Concurrent。
 
@@ -367,9 +385,9 @@ assert!(!lock.raise_epoch_id(1));
 ```rust
 lock.acquire_concurrent()?;
 
-if lock.try_concurrent_to_exclusive_with_switch_context_id(100) {
+if let Some(guard) = lock.try_concurrent_to_exclusive_with_switch_context_id(100) {
     // ContextID 切换成功，并持有 Exclusive。
-    lock.release_exclusive();
+    lock.release_exclusive(guard);
 } else {
     // 原 Concurrent 已自动释放。
     // 这里不能再次 release_concurrent()。
@@ -382,8 +400,8 @@ EpochID 版本：
 ```rust
 lock.acquire_concurrent()?;
 
-if lock.try_concurrent_to_exclusive_with_raise_epoch_id(20) {
-    lock.release_exclusive();
+if let Some(guard) = lock.try_concurrent_to_exclusive_with_raise_epoch_id(20) {
+    lock.release_exclusive(guard);
 } else {
     // 原 Concurrent 已自动释放。
 }
@@ -587,13 +605,13 @@ Scope 通过 `!Send / !Sync` 限制减少跨线程误用，但核心直接 API �
 Cargo 单元/集成测试：
 
 ```powershell
-cargo test --release --workspace
+cargo test --release --workspace --offline
 ```
 
 完整语义回归：
 
 ```powershell
-cargo run --release -p cel-test-and-benchmark -- `
+cargo run --release --offline -p cel-test-and-benchmark -- `
   --full-semantics `
   --lock-instances 8 `
   --semantic-workers 4 `
@@ -603,13 +621,13 @@ cargo run --release -p cel-test-and-benchmark -- `
 Pipeline 固定语义：
 
 ```powershell
-cargo run --release -p cel-test-and-benchmark -- --pipeline-semantics
+cargo run --release --offline -p cel-test-and-benchmark -- --pipeline-semantics
 ```
 
 Pipeline 随机压力测试：
 
 ```powershell
-cargo run --release -p cel-test-and-benchmark -- `
+cargo run --release --offline -p cel-test-and-benchmark -- `
   --pipeline-stress 10m `
   --lock-instances 8 `
   --semantic-workers 8 `
@@ -619,7 +637,7 @@ cargo run --release -p cel-test-and-benchmark -- `
 Exclusive 高竞争进展测试：
 
 ```powershell
-cargo run --release -p cel-test-and-benchmark -- `
+cargo run --release --offline -p cel-test-and-benchmark -- `
   --contention-stress 30s `
   --semantic-workers 16
 ```
@@ -627,26 +645,74 @@ cargo run --release -p cel-test-and-benchmark -- `
 耐久测试：
 
 ```powershell
-cargo run --release -p cel-test-and-benchmark -- `
+cargo run --release --offline -p cel-test-and-benchmark -- `
   --endurance 24h `
   --lock-instances 8 `
   --semantic-workers 8
 ```
 
+本发布包的正式 30 分钟 Pipeline 压力完成 `2,732,232,429` 轮和 `14,775,380,351` 次校验回调；60 秒 Exclusive 竞争完成 `401,719,852` 次获取，32 个 worker 全部取得进展。
+
 详细内容参阅 [`TESTING_CN.md`](TESTING_CN.md)。
 
 ---
 
-## 性能对比
+## 性能评测概要
 
-默认 Benchmark 使用与 C# 项目对应的随机共享内存 Work，并比较：
+### 评测对象与可比性
+
+评测程序统一比较六种策略：
 
 - `std::sync::Mutex`；
 - `std::sync::RwLock`；
-- `ConcurrentExclusiveLock`；
-- `CEL(ExclusiveOnly)`。
+- `parking_lot::Mutex` 0.12.5；
+- `parking_lot::RwLock` 0.12.5；
+- CEL；
+- `CEL(ExclusiveOnly)`，即所有操作都走 CEL Exclusive 的纯互斥基线。
 
-场景：
+每种策略在每个场景中都会重新创建锁和 `MemoryWork`，使用相同的随机种子、相同的读写判定序列、相同的共享内存和相同的 Work 步数。测试结束后会比较：
+
+- 实际读次数；
+- 实际写次数；
+- 最终状态哈希。
+
+任意策略的操作次数或最终状态不一致，整组 benchmark 都会失败。本次正式数据共包含 **10 组配置、6 种读写比例、6 种策略，合计 360 行结果**。
+
+测试环境：
+
+```text
+Rust        : 1.75.0
+OS          : Linux 6.12 x86_64
+Virtualized : KVM
+Available CPU: 约 4
+```
+
+16 线程和 64 线程都属于超额订阅，因此这些数字适合比较**同一受限环境中的相对行为**，不能直接视为 Windows、裸机 Linux、物理 64 核、多 NUMA 服务器或其他 Rust 版本上的固定排名。
+
+所有 README 数据都直接来自：
+
+```text
+TestBenchmarkResults/final/benchmarks/
+```
+
+其中保留了逐组原始日志、CSV、JSON、三轮中位数、运行脚本和生成文档的脚本。
+
+### 完整正式测试矩阵
+
+| 配置标识 | 锁实例 | 每锁线程 | 总线程 | 每线程操作 | 每锁内存 | Work | 次数 | 主要目的 |
+|---|---:|---:|---:|---:|---:|---:|---:|---|
+| `single_1t_w64` | 1 | 1 | 1 | 100,000 | 64 MiB | 64 | 1 | 无争用固定成本基线 |
+| `single_4t_w64` | 1 | 4 | 4 | 30,000 | 64 MiB | 64 | 1 | 接近机器可用 CPU 数 |
+| `single_16t_w64_r1` | 1 | 16 | 16 | 10,000 | 64 MiB | 64 | 第 1 轮 | 主配置重复测试 |
+| `single_16t_w64_r2` | 1 | 16 | 16 | 10,000 | 64 MiB | 64 | 第 2 轮 | 主配置重复测试 |
+| `single_16t_w64_r3` | 1 | 16 | 16 | 10,000 | 64 MiB | 64 | 第 3 轮 | 主配置重复测试 |
+| `single_64t_w64` | 1 | 64 | 64 | 3,000 | 64 MiB | 64 | 1 | 高争用与超额订阅 |
+| `single_16t_w1` | 1 | 16 | 16 | 50,000 | 64 MiB | 1 | 1 | 极短临界区 |
+| `single_16t_w256` | 1 | 16 | 16 | 3,000 | 64 MiB | 256 | 1 | 较长临界区 |
+| `multi_8x4_w64` | 8 | 4 | 32 | 5,000 | 16 MiB | 64 | 1 | 中等规模多锁 |
+| `multi_64x2_w64` | 64 | 2 | 128 | 2,000 | 4 MiB | 64 | 1 | 大量独立锁与调度压力 |
+
+每组配置都执行：
 
 ```text
 100/0
@@ -657,44 +723,230 @@ cargo run --release -p cel-test-and-benchmark -- `
 0/100
 ```
 
-正式测试建议使用足够的临界区 Work。极短临界区主要测量锁本身成本，无法完整体现 Concurrent 并行和抢占式 Exclusive 的业务价值。
+下面不是只展示 CEL 占优的场景，而是按测试矩阵完整说明主要结果和限制。
 
-单锁热点：
+### 无争用基线：单锁、1 线程、Work=64
 
-```powershell
-cargo run --release -p cel-test-and-benchmark -- `
-  --lock-instances 1 `
-  --threads 16 `
-  --operations 100000 `
-  --workload memory `
-  --memory-mb 64 `
-  --read-work 256 `
-  --write-work 256
+单线程时没有锁竞争，结果主要反映 API、Guard、原子操作和 Work 本身的固定成本。单位为 `works/s`：
+
+| 读/写 | std Mutex | std RwLock | parking Mutex | parking RwLock | CEL | CEL ExclusiveOnly |
+|---:|---:|---:|---:|---:|---:|---:|
+| 100/0 | 618,810 | 612,489 | **636,147** | 579,282 | 594,852 | 588,689 |
+| 99.5/0.5 | 567,708 | 572,140 | 575,756 | 557,009 | **583,535** | 568,501 |
+| 90/10 | **591,151** | 571,345 | 581,760 | 583,009 | 566,104 | 570,733 |
+| 50/50 | 518,260 | **538,132** | 501,885 | 533,362 | 512,943 | 478,164 |
+| 30/70 | 503,101 | 503,414 | **506,711** | 503,773 | 494,638 | 482,750 |
+| 0/100 | 481,560 | 474,150 | 485,258 | 470,524 | **490,807** | 467,799 |
+
+这一组没有稳定赢家，各策略整体处于相近范围。它说明 CEL 在无争用时没有异常高的固定开销，但无争用数据本身不能证明并发优势。
+
+### 接近机器并发度：单锁、4 线程、Work=64
+
+当前虚拟机约有 4 个可用 CPU，因此这组比 16/64 线程更接近机器实际并发度：
+
+| 读/写 | std Mutex | std RwLock | parking Mutex | parking RwLock | CEL | CEL ExclusiveOnly |
+|---:|---:|---:|---:|---:|---:|---:|
+| 100/0 | 372,767 | **1,787,040** | 428,539 | 1,651,290 | 1,749,075 | 356,814 |
+| 99.5/0.5 | 400,332 | 1,179,255 | 330,386 | 1,484,585 | **2,222,444** | 356,100 |
+| 90/10 | 430,552 | 442,452 | 426,983 | 686,100 | **918,912** | 408,557 |
+| 50/50 | 383,622 | 336,925 | 362,777 | 338,245 | **470,486** | 364,260 |
+| 30/70 | 368,546 | 334,918 | 371,582 | 281,488 | **460,153** | 351,083 |
+| 0/100 | 326,740 | 276,987 | **344,459** | 305,641 | 331,291 | 338,942 |
+
+客观来看：
+
+- 纯读由标准 `RwLock` 略胜 CEL；
+- CEL 在 99.5/0.5 到 30/70 的混合比例中领先；
+- 纯写重新回到简单 Mutex 类策略更有竞争力的状态；
+- `parking_lot::RwLock` 在 99.5/0.5 和 90/10 中优于标准 `RwLock`，但低于 CEL。
+
+### 主配置：单锁、16 线程、64 MiB、Work=64
+
+命令参数：
+
+```text
+--lock-instances 1 --threads 16 --workload memory
+--operations 10000 --memory-mb 64 --read-work 64 --write-work 64
 ```
 
-多实体锁：
+这一配置完整运行 3 次。下表使用吞吐中位数，单位 `works/s`：
 
-```powershell
-cargo run --release -p cel-test-and-benchmark -- `
-  --lock-instances 8 `
-  --threads 8 `
-  --operations 100000 `
-  --workload memory `
-  --memory-mb 64 `
-  --read-work 640 `
-  --write-work 640
+| 读/写 | std Mutex | std RwLock | parking Mutex | parking RwLock | CEL | CEL ExclusiveOnly |
+|---:|---:|---:|---:|---:|---:|---:|
+| 100/0 | 555,908 | 2,483,393 | 256,295 | 2,539,576 | **2,695,156** | 508,805 |
+| 99.5/0.5 | 519,450 | **1,575,629** | 257,357 | 1,355,039 | 1,491,291 | 519,608 |
+| 90/10 | 540,791 | 379,354 | 255,487 | 463,697 | **713,582** | 524,334 |
+| 50/50 | **494,775** | 312,405 | 235,382 | 221,611 | 470,606 | 475,282 |
+| 30/70 | **467,314** | 409,725 | 239,319 | 214,644 | 440,282 | 465,727 |
+| 0/100 | **466,230** | 460,028 | 242,002 | 234,290 | 456,459 | 453,863 |
+
+对应结论：
+
+- **100/0：** CEL 比标准 `RwLock` 高约 8.5%，比 `parking_lot::RwLock` 高约 6.1%，但三者仍可视为同一性能档；
+- **99.5/0.5：** 标准 `RwLock` 最快，CEL 比它低约 5.4%，说明 CEL 并非在所有读主导比例中领先；
+- **90/10：** CEL 为 `713,582/s`，比标准 `RwLock` 高约 88%，比 `parking_lot::RwLock` 高约 54%，是这组测试中 CEL 优势最明确的比例；
+- **50/50：** 标准 Mutex 比 CEL 高约 5%，但 CEL 明显高于两种 `RwLock`；
+- **30/70：** 标准 Mutex、CEL、CEL ExclusiveOnly 和标准 `RwLock` 已进入相近区间，没有数量级差异；
+- **0/100：** 标准 Mutex、标准 `RwLock`、CEL 基本收敛，CEL 不具备纯写天然优势；
+- **本机的 parking_lot：** 纯读正常处于高性能档，但高写单锁争用偏慢。该结果只代表 `parking_lot 0.12.5 + Rust 1.75 + 当前 Linux/KVM`，不能外推为跨平台结论。
+
+### 16 线程主配置的三轮波动范围
+
+下面为三种主要 Concurrent/Exclusive 策略的 `最小值 / 中位数 / 最大值`，单位 `works/s`：
+
+| 读/写 | std RwLock | parking RwLock | CEL |
+|---:|---:|---:|---:|
+| 100/0 | 2,134,108 / 2,483,393 / 2,858,710 | 1,938,258 / 2,539,576 / 3,263,309 | 2,625,290 / 2,695,156 / 3,338,169 |
+| 99.5/0.5 | 1,524,671 / 1,575,629 / 1,586,392 | 1,312,349 / 1,355,039 / 1,355,498 | 1,322,869 / 1,491,291 / 1,748,381 |
+| 90/10 | 357,860 / 379,354 / 441,569 | 460,819 / 463,697 / 473,767 | 621,665 / 713,582 / 814,223 |
+| 50/50 | 301,136 / 312,405 / 313,910 | 221,002 / 221,611 / 255,398 | 426,447 / 470,606 / 475,392 |
+| 30/70 | 388,299 / 409,725 / 425,057 | 203,509 / 214,644 / 229,394 | 419,337 / 440,282 / 458,694 |
+| 0/100 | 442,967 / 460,028 / 473,773 | 232,631 / 234,290 / 234,989 | 445,817 / 456,459 / 481,919 |
+
+三轮并非完全无波动，尤其纯读和 CEL 的部分混合比例受虚拟机调度影响较明显。因此 README 使用中位数，而不是挑选单轮最高值。原始日志：
+
+```text
+TestBenchmarkResults/final/benchmarks/single_16t_w64_r1.log
+TestBenchmarkResults/final/benchmarks/single_16t_w64_r2.log
+TestBenchmarkResults/final/benchmarks/single_16t_w64_r3.log
 ```
 
-关注指标：
+### 64 线程高争用
 
-- `works/s`：总吞吐；
-- `works/s/lock`：每个实体锁吞吐；
-- `avg write ns`：Exclusive 请求、等待、Work 和释放的平均总时间；
-- `state`：不同策略最终业务状态必须一致。
+64 个线程运行在约 4 个可用 CPU 上，这组主要观察超额订阅、停车/唤醒和高争用下的进展能力：
 
-正式结论应来自目标机器上的多轮 Release 测试，不应从单次、短临界区或不同语言运行时之间的数字直接推导。
+| 读/写 | std RwLock | parking RwLock | CEL |
+|---:|---:|---:|---:|
+| 100/0 | 2,655,356 | 2,452,647 | **5,329,420** |
+| 99.5/0.5 | **1,116,340** | 808,276 | 1,060,577 |
+| 90/10 | 262,941 | 284,170 | **654,907** |
+| 50/50 | 206,418 | 201,012 | **459,576** |
+| 30/70 | 439,304 | 199,050 | **455,274** |
+| 0/100 | **452,001** | 229,147 | 440,729 |
 
-详细方法参阅 [`PERFORMANCE_CN.md`](PERFORMANCE_CN.md)。
+这组中：
+
+- CEL 在纯读、90/10、50/50 和 30/70 中较强；
+- 标准 `RwLock` 在 99.5/0.5 和纯写中略胜 CEL；
+- 64 线程远超过可用 CPU 数，调度器和停车策略成为结果的一部分，不能把它当成物理 64 核数据。
+
+`avg write ns` 是写请求从申请锁之前，到写 Work 完成并释放锁之后的平均端到端延迟，包含排队、调度、获取、Work 和释放，不是单条锁指令成本：
+
+| 读/写 | std RwLock | parking RwLock | CEL |
+|---:|---:|---:|---:|
+| 99.5/0.5 | 276,617 ns | 393,168 ns | **97,037 ns** |
+| 90/10 | 105,000 ns | 247,545 ns | **71,791 ns** |
+| 50/50 | 344,689 ns | 297,299 ns | **104,858 ns** |
+| 0/100 | 97,755 ns | 272,694 ns | **94,372 ns** |
+
+在这台超额订阅虚拟机中，CEL 的写请求推进延迟较低；但其中包含操作系统挂起和重新调度时间，因此不能把这些值解释成纯锁内部纳秒开销。
+
+### 临界区长度变化
+
+16 线程下改变 Work 长度，结果并不固定：
+
+| Work | 场景 | std RwLock | parking RwLock | CEL | CEL / std RwLock |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 100/0 | 21,061,252 | 21,405,547 | **31,136,259** | 1.48× |
+| 1 | 90/10 | 4,834,923 | 6,538,139 | **7,861,429** | 1.63× |
+| 1 | 0/100 | **3,092,052** | 1,430,813 | 2,582,370 | 0.84× |
+| 64 | 100/0 | 2,483,393 | 2,539,576 | **2,695,156** | 1.09× |
+| 64 | 90/10 | 379,354 | 463,697 | **713,582** | 1.88× |
+| 64 | 0/100 | **460,028** | 234,290 | 456,459 | 0.99× |
+| 256 | 100/0 | **1,183,342** | 649,555 | 828,225 | 0.70× |
+| 256 | 90/10 | **191,707** | 147,245 | 164,580 | 0.86× |
+| 256 | 0/100 | 112,913 | 73,625 | **120,843** | 1.07× |
+
+其中 Work=64 为三轮中位数；Work=1 和 Work=256 为扩展配置单轮结果。
+
+这说明：
+
+- 极短临界区会放大同步协议、原子操作和缓存线竞争差异；
+- Work 增大后，业务内存访问占比上升，锁本身的相对影响下降；
+- Work=256 的纯读和 90/10 中，标准 `RwLock` 反而领先 CEL；
+- 纯写越来越接近普通互斥比较，CEL 的 Concurrent 设计不再提供额外价值。
+
+### 多锁：8 把锁、每锁 4 线程
+
+| 读/写 | std RwLock | parking RwLock | CEL |
+|---:|---:|---:|---:|
+| 100/0 | 2,864,727 | **3,042,378** | 2,802,405 |
+| 99.5/0.5 | **6,261,619** | 2,289,339 | 1,970,930 |
+| 90/10 | **2,263,285** | 1,691,974 | 2,193,316 |
+| 50/50 | **2,095,450** | 1,632,556 | 1,750,895 |
+| 30/70 | 2,049,541 | 1,903,300 | **2,564,973** |
+| 0/100 | 1,714,731 | 1,879,581 | **2,012,275** |
+
+这组没有统一赢家：
+
+- 标准 `RwLock` 在 99.5/0.5、90/10、50/50 中领先；
+- `parking_lot::RwLock` 在纯读领先；
+- CEL 在 30/70 和纯写领先；
+- 多锁总吞吐同时受锁实例并行度、内存带宽、调度和测试时长影响，单锁倍率会收敛或改变。
+
+### 多锁：64 把锁、每锁 2 线程
+
+这组包含 128 个专用线程，但沙盒只有约 4 个可用 CPU，并且每个策略/比例仅有 256,000 次总操作。它主要验证大量独立锁能否并行推进和保持最终状态一致，不适合作为精确排名：
+
+| 读/写 | std RwLock | parking RwLock | CEL |
+|---:|---:|---:|---:|
+| 100/0 | **3,035,962** | 2,817,826 | 2,815,580 |
+| 99.5/0.5 | 2,773,926 | 3,250,122 | **11,259,869** |
+| 90/10 | 3,197,306 | 2,551,568 | **4,544,870** |
+| 50/50 | 3,112,502 | 4,042,819 | **8,874,252** |
+| 30/70 | 2,882,352 | **7,186,587** | 5,889,522 |
+| 0/100 | 2,560,876 | **10,973,384** | 2,082,153 |
+
+这张表的排名跳动很大，符合短测试时长、128 线程超额订阅和独立锁调度共同作用的特征。可以确认的是：六种策略在所有比例下都完成了相同读写次数，并得到相同最终状态哈希；不能据此声称稳定的数量级优势。
+
+### 正确性与持续压力验证
+
+性能结果之外，本发布包还完成：
+
+| 验证项 | 结果 |
+|---|---|
+| `cargo fmt --check` | PASS |
+| `cargo clippy --workspace --all-targets -- -D warnings` | PASS |
+| Release Workspace 构建 | PASS |
+| Release 全部 Cargo 测试 | PASS |
+| 完整语义测试 | PASS |
+| Pipeline 固定语义测试 | PASS |
+| 空 Cargo 缓存、纯离线重建 | PASS |
+| 60 秒 Exclusive 竞争 | `401,719,852` 次获取，32 个 worker 全部进展 |
+| 60 秒 Endurance | 58 个确定性批次 |
+| 30 分钟 Pipeline 压力 | `2,732,232,429` 轮，`14,775,380,351` 次校验回调 |
+
+30 分钟 Pipeline 测试结束后，锁状态和独立访问验证器均恢复 Idle。原始日志位于：
+
+```text
+TestBenchmarkResults/final/pipeline-stress-30m.log
+TestBenchmarkResults/final/contention-stress-60s.log
+TestBenchmarkResults/final/endurance-60s.log
+TestBenchmarkResults/final/full-semantics.log
+TestBenchmarkResults/final/pipeline-semantics.log
+```
+
+### 综合结论
+
+基于本次环境和完整测试矩阵，可以得到的谨慎结论是：
+
+- CEL 最有价值的区域是**读路径需要低调度成本，同时待处理写请求需要阻止新读继续进入**的混合负载，本次 90/10 是最典型场景；
+- CEL 在纯读中有竞争力，但不会在所有线程数和 Work 长度下稳定胜过成熟 `RwLock`；
+- 99.5/0.5 下标准 `RwLock` 在 16/64 线程主测试中都能胜过 CEL；
+- Work=256 的纯读和 90/10 中，标准 `RwLock` 领先 CEL，说明业务工作变长后排名可能反转；
+- 高写和纯写场景中，简单 Mutex 可以与 CEL 持平或更快，CEL 不具备纯写天然优势；
+- `parking_lot::RwLock` 是必须保留的高性能基线，但当前 Linux/KVM 结果不能代表 Windows、裸机 Linux或不同 Rust 版本；
+- 多锁测试没有统一赢家，锁实例数、每锁线程数、内存带宽和调度都会改变总吞吐；
+- 吞吐和写延迟必须同时观察，较高吞吐不保证每个写请求延迟最低；
+- CEL 的原地升级、降级、ContextID/EpochID 和 Pipeline 是普通 `RwLock` 不直接提供的语义能力。性能表只能回答执行成本，不能替代功能层面的选型。
+
+完整 360 行结果和原始数据参阅 [`PERFORMANCE_CN.md`](PERFORMANCE_CN.md) 以及：
+
+```text
+TestBenchmarkResults/final/benchmarks/all_results.csv
+TestBenchmarkResults/final/benchmarks/all_results.json
+TestBenchmarkResults/final/benchmarks/
+```
 
 ---
 
@@ -710,7 +962,7 @@ AtomicI32  // EpochID
 
 关键协议转换使用 `SeqCst`，观察读取使用 Acquire，直接业务 ID 设置使用 Release。第一版优先保证与 C# Interlocked / Volatile 语义一致，没有为了减少屏障而激进弱化内存序。
 
-内部 Monitor 完全基于 Rust 标准库，因此由标准库把 `Mutex` / `Condvar` 映射到 Windows、Linux、macOS、Android、iOS 等目标的系统等待原语。
+内部 Monitor 直接使用 Rust 标准库 `Mutex<()>`，由标准库映射到 Windows、Linux、macOS、Android、iOS 等目标的系统等待原语。
 
 目标必须支持 64 位原子；不支持 `AtomicI64` 的小型嵌入式目标不在当前版本支持范围内。裸机和 `no_std` 也不在当前版本范围内，因为阻塞 Monitor 需要线程调度与等待机制。
 

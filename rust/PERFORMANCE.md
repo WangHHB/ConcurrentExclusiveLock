@@ -1,101 +1,82 @@
-# Rust Performance Test Guide
+# Rust performance benchmark and measured results
 
-## 1. Purpose
+## Compared strategies
 
-The benchmark compares the same shared-memory Work under:
+- `std::sync::Mutex`
+- `std::sync::RwLock`
+- `parking_lot::Mutex` 0.12.5
+- `parking_lot::RwLock` 0.12.5
+- CEL
+- CEL(ExclusiveOnly)
 
-- `std::sync::Mutex`;
-- `std::sync::RwLock`;
-- `ConcurrentExclusiveLock` (CEL);
-- `CEL(ExclusiveOnly)`, which routes reads and writes through Exclusive to expose the monitor slow path.
+All strategies receive fresh lock/work instances, the same deterministic read/write sequence, the same shared-memory workload, and a final state-hash equality check. `avg write ns` is end-to-end write-request latency including waiting, scheduling, work, and release.
 
-It is not designed to prove universal superiority. It measures the throughput/write-completion trade-off under read-dominant, balanced, and write-heavy workloads, including multi-entity lock topologies and nontrivial critical-section Work.
+The `parking_lot` source and required dependencies are vendored under `vendor/`, so the benchmark builds offline.
 
-## 2. Work model
-
-Each lock owns an independent `MemoryWork` with a configurable `i64` array. Concurrent operations use worker-local random state to read random locations and mix 64-bit values. Exclusive operations use shared random state to update random locations and advance a final state hash. Every strategy receives the same operation counts and Work parameters, and fresh lock/Work instances are created for each strategy and scenario.
-
-This is based on the C# project's random shared-memory workload. It is intentionally more representative than an empty region or a single integer increment.
-
-## 3. Scenarios
-
-The standard run executes `100/0`, `99.5/0.5`, `90/10`, `50/50`, `30/70`, and `0/100` read/write ratios.
-
-The 99.5/0.5 and 90/10 scenarios are especially useful for examining read-dominant throughput together with writer completion. The write-heavy scenarios show convergence toward mutex-like execution rather than a Concurrent advantage.
-
-## 4. Release build
-
-Always use Release:
-
-```powershell
-cargo build --release --workspace
-```
-
-Record CPU, OS, Rust version/target, power policy, NUMA topology, complete command, and raw output. Avoid drawing conclusions from Debug builds.
-
-## 5. Commands
-
-Single hot lock:
-
-```powershell
-cargo run --release -p cel-test-and-benchmark -- `
-  --lock-instances 1 `
-  --threads 32 `
-  --operations 100000 `
-  --workload memory `
-  --memory-mb 64 `
-  --read-work 256 `
-  --write-work 256
-```
-
-Eight entity locks with eight workers per lock:
-
-```powershell
-cargo run --release -p cel-test-and-benchmark -- `
-  --lock-instances 8 `
-  --threads 8 `
-  --operations 100000 `
-  --workload memory `
-  --memory-mb 64 `
-  --read-work 256 `
-  --write-work 256
-```
-
-`--memory-mb` is per lock instance.
-
-## 6. Work sizes
-
-Very short critical regions mostly measure synchronization overhead and may not expose the benefit of Concurrent execution. Keep complete results for at least:
+## Environment
 
 ```text
-Work 64
-Work 256
-Work 640
+Rust 1.75.0
+Linux 6.12.13 x86_64 under KVM
+AMD EPYC 9V74
+available_parallelism() = 4
+Release: opt-level=3, thin LTO, codegen-units=1
 ```
 
-Example heavy Work:
+## Main result: one lock, 16 threads, 64 MiB, work=64
 
-```powershell
-cargo run --release -p cel-test-and-benchmark -- `
-  --lock-instances 8 `
-  --threads 8 `
-  --operations 100000 `
-  --memory-mb 64 `
-  --read-work 640 `
-  --write-work 640
+Three complete runs were executed. Median throughput (`works/s`):
+
+| read/write | std Mutex | std RwLock | parking Mutex | parking RwLock | CEL | CEL ExclusiveOnly |
+|---:|---:|---:|---:|---:|---:|---:|
+| 100/0 | 555,908 | 2,483,393 | 256,295 | 2,539,576 | 2,695,156 | 508,805 |
+| 99.5/0.5 | 519,450 | 1,575,629 | 257,357 | 1,355,039 | 1,491,291 | 519,608 |
+| 90/10 | 540,791 | 379,354 | 255,487 | 463,697 | 713,582 | 524,334 |
+| 50/50 | 494,775 | 312,405 | 235,382 | 221,611 | 470,606 | 475,282 |
+| 30/70 | 467,314 | 409,725 | 239,319 | 214,644 | 440,282 | 465,727 |
+| 0/100 | 466,230 | 460,028 | 242,002 | 234,290 | 456,459 | 453,863 |
+
+CEL was close to both RwLocks for pure reads, substantially ahead at 90/10 in this environment, close to the standard Mutex at high write ratios, and close to the standard Mutex/RwLock for 100% writes. `parking_lot` was slower under high-write single-lock oversubscription on this particular Linux VM; this is not a universal ranking.
+
+## 64-thread oversubscribed single lock
+
+| read/write | std Mutex | std RwLock | parking Mutex | parking RwLock | CEL | CEL ExclusiveOnly |
+|---:|---:|---:|---:|---:|---:|---:|
+| 100/0 | 564,279 | 2,655,356 | 246,253 | 2,452,647 | 5,329,420 | 574,821 |
+| 99.5/0.5 | 588,392 | 1,116,340 | 235,024 | 808,276 | 1,060,577 | 542,371 |
+| 90/10 | 512,326 | 262,941 | 204,392 | 284,170 | 654,907 | 525,457 |
+| 50/50 | 474,506 | 206,418 | 219,646 | 201,012 | 459,576 | 463,750 |
+| 30/70 | 463,907 | 439,304 | 246,953 | 199,050 | 455,274 | 476,394 |
+| 0/100 | 473,203 | 452,001 | 223,601 | 229,147 | 440,729 | 443,865 |
+
+## Critical-region length
+
+| Work | scenario | std RwLock | parking RwLock | CEL | CEL / std RwLock |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 100/0 | 21,061,252 | 21,405,547 | 31,136,259 | 1.48× |
+| 1 | 90/10 | 4,834,923 | 6,538,139 | 7,861,429 | 1.63× |
+| 1 | 50/50 | 2,037,329 | 1,811,041 | 3,287,067 | 1.61× |
+| 1 | 0/100 | 3,092,052 | 1,430,813 | 2,582,370 | 0.84× |
+| 64（单轮） | 100/0 | 2,483,393 | 2,539,576 | 2,625,290 | 1.06× |
+| 64（单轮） | 90/10 | 379,354 | 473,767 | 814,223 | 2.15× |
+| 64（单轮） | 50/50 | 313,910 | 221,611 | 470,606 | 1.50× |
+| 64（单轮） | 0/100 | 473,773 | 232,631 | 481,919 | 1.02× |
+| 256 | 100/0 | 1,183,342 | 649,555 | 828,225 | 0.70× |
+| 256 | 90/10 | 191,707 | 147,245 | 164,580 | 0.86× |
+| 256 | 50/50 | 107,649 | 85,557 | 110,950 | 1.03× |
+| 256 | 0/100 | 112,913 | 73,625 | 120,843 | 1.07× |
+
+## Multi-lock tests
+
+The complete 8 locks × 4 threads and 64 locks × 2 threads results are retained in `TestResults/final/benchmarks/`. The 64×2 case uses 128 OS threads on roughly four available CPUs and is treated as a completion/state-consistency stress case rather than a stable throughput ranking.
+
+## Raw data
+
+```text
+TestResults/final/benchmarks/all_results.csv
+TestResults/final/benchmarks/all_results.json
+TestResults/final/benchmarks/single_16t_w64_median.csv
+TestResults/final/benchmarks/*.log
 ```
 
-## 7. Metrics
-
-- `elapsed`: wall-clock time for the strategy/scenario.
-- `works/s`: aggregate throughput.
-- `works/s/lock`: average throughput per entity lock.
-- `avg write ns`: average end-to-end write operation time, including permission waiting and Exclusive Work.
-- `reads` / `writes`: actual operation counts.
-- `state`: final business-state hash; all strategies must match.
-
-## 8. Interpretation boundary
-
-Conclusions should remain tied to the tested machine and parameters. Platform `RwLock` policy, CPU/NUMA topology, scheduler behavior, cache state, critical-section size, and write ratio can materially change results. High write ratios naturally converge toward mutually exclusive execution, while very short regions may favor simpler primitives.
-
-The Rust RawMonitor also has different implementation details from .NET Monitor and Java ReentrantLock, so cross-language numbers should be reported as separate platform results rather than direct language rankings.
+Performance depends on OS, runtime, CPU topology, thread count, lock count, critical-region duration, read/write ratio, oversubscription, and background load. Strategies run in a fixed order; the primary 16-thread configuration was repeated three times and reports medians, while extension configurations are single runs. Re-run the included executable on the target system before making deployment decisions.

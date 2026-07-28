@@ -26,7 +26,7 @@ The port follows these rules:
 
 1. C# remains the protocol reference implementation.
 2. Rust does not redesign the access model.
-3. The core lock uses direct object methods and does not return an ownership token.
+3. Concurrent remains a direct protocol; Rust introduces `ExclusiveGuard` only because the real standard `MutexGuard` must live across the Exclusive business region.
 4. A Concurrent ID is an entry number for the current uninterrupted concurrent round, not a release credential.
 5. No ticket queue or strict FIFO layer is added.
 6. Scope manages lifetime only and does not alter the core protocol.
@@ -40,6 +40,9 @@ rust/
 ├─ crates/
 │  ├─ concurrent-exclusive-lock/   # Core lock, Scope, Pipeline
 │  └─ test-and-benchmark/           # Semantic tests, stress tests, benchmark
+├─ vendor/                          # offline parking_lot benchmark dependencies
+├─ TestBenchmarkResults/           # raw logs and CSV/JSON
+├─ Artifacts/                       # prebuilt executables
 ├─ Cargo.toml                       # Cargo workspace
 ├─ README.md
 ├─ README_CN.md
@@ -48,6 +51,7 @@ rust/
 ├─ PERFORMANCE.md
 ├─ PERFORMANCE_CN.md
 ├─ VERIFICATION.md
+├─ THIRD_PARTY_NOTICES.md             # Vendored dependency versions and licenses
 ├─ build.ps1
 ├─ run-tests.ps1
 └─ run-benchmark.ps1
@@ -82,24 +86,21 @@ This addresses a common business problem in conventional reader/writer schedulin
 
 ### Internal monitor
 
-Rust's standard `Mutex` API intentionally unlocks by dropping a Guard and does not expose a public raw `lock()/unlock()` pair that can be retained across separate methods. To preserve the direct C#/Java-style lock API, this crate implements an internal standard-library-only `RawMonitor` from:
+The C# reference `Monitor` is mapped directly to Rust's standard
+`std::sync::Mutex<()>`. Rust releases a mutex by dropping its `MutexGuard`, so
+Exclusive acquisition returns an `ExclusiveGuard` that retains the real standard
+mutex guard across the Exclusive business region. No `RawMonitor`, held-state
+atomics, waiter counters, `Condvar`, or custom fairness protocol is added.
 
-```text
-AtomicBool      monitor-held state
-AtomicUsize     waiter pressure
-Mutex + Condvar blocking wait and wake-up
-```
+The unavoidable Rust API adaptation is therefore:
 
-The monitor is:
+- `acquire_exclusive()` returns `ExclusiveGuard`;
+- explicit release consumes that guard;
+- downgrade consumes that guard and retains Concurrent permission;
+- dropping the guard releases Exclusive permission safely.
 
-- non-recursive;
-- held across `acquire_exclusive()` and `release_exclusive()`;
-- shared by ordinary Exclusive and upgrade scheduling;
-- resistant to unrestricted barging through waiter tracking;
-- not a ticket queue;
-- not a strict FIFO guarantee.
-
-The objective is the same type of balance provided by the C# `Monitor`: useful ordering and blocking coordination without paying the cost or head-of-line blocking of absolute fairness.
+The counter state machine, upgrade priority, branch order, and release order remain
+aligned with the C# reference implementation.
 
 ### Upgrade priority
 
@@ -137,8 +138,8 @@ cargo --version
 From the `rust` directory:
 
 ```powershell
-cargo build --release --workspace
-cargo test --release --workspace
+cargo build --release --workspace --offline
+cargo test --release --workspace --offline
 ```
 
 Or run:
@@ -154,7 +155,25 @@ target\release\cel-test-and-benchmark.exe   # Windows
 target/release/cel-test-and-benchmark       # Linux/macOS
 ```
 
-The workspace has no third-party crate dependencies. The core library and the test/benchmark executable can therefore build with an empty Cargo registry cache once the Rust toolchain is installed.
+This release package also includes the Linux x64 executable built and verified in the test environment:
+
+```text
+Artifacts/linux-x64/cel-test-and-benchmark
+```
+
+It also includes the core crate archive verified by `cargo package`:
+
+```text
+Artifacts/crate/concurrent-exclusive-lock-1.0.0.crate
+```
+
+Running `build-windows.ps1` on Windows copies the generated executable to:
+
+```text
+Artifacts\windows-x64\cel-test-and-benchmark.exe
+```
+
+The core library crate has no third-party dependencies. Vendored benchmark dependency versions and licenses are listed in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). The benchmark uses `parking_lot 0.12.5`; its source and required dependencies are included under `vendor/`, so the complete workspace still builds with an empty Cargo registry cache by using `--offline`.
 
 ---
 
@@ -215,11 +234,11 @@ A limit below 1 returns `InvalidMaxConcurrent`. Blocking acquisition returns `Ca
 ### Exclusive
 
 ```rust
-lock.acquire_exclusive();
+let guard = lock.acquire_exclusive();
 
 // Isolated business region.
 
-lock.release_exclusive();
+lock.release_exclusive(guard);
 ```
 
 Exclusive permission is thread-affine. Acquisition, release, or downgrade must occur on the same thread.
@@ -249,8 +268,8 @@ if let Some(id) = lock.try_acquire_concurrent_for(Duration::from_millis(100))? {
 Preemptive Try:
 
 ```rust
-if lock.try_acquire_exclusive(true) {
-    lock.release_exclusive();
+if let Some(guard) = lock.try_acquire_exclusive(true) {
+    lock.release_exclusive(guard);
 }
 ```
 
@@ -259,16 +278,16 @@ if lock.try_acquire_exclusive(true) {
 Idle-only immediate attempt:
 
 ```rust
-if lock.try_acquire_exclusive(false) {
-    lock.release_exclusive();
+if let Some(guard) = lock.try_acquire_exclusive(false) {
+    lock.release_exclusive(guard);
 }
 ```
 
 Timed preemptive attempt:
 
 ```rust
-if lock.try_acquire_exclusive_for(Duration::from_millis(100)) {
-    lock.release_exclusive();
+if let Some(guard) = lock.try_acquire_exclusive_for(Duration::from_millis(100)) {
+    lock.release_exclusive(guard);
 }
 ```
 
@@ -285,11 +304,11 @@ lock.acquire_concurrent()?;
 
 // Concurrent phase.
 
-lock.concurrent_to_exclusive();
+let guard = lock.concurrent_to_exclusive();
 
 // Continuous Exclusive phase; no release/reacquire gap.
 
-lock.release_exclusive();
+lock.release_exclusive(guard);
 # Ok::<(), concurrent_exclusive_lock::ConcurrentExclusiveLockError>(())
 ```
 
@@ -298,11 +317,11 @@ After conversion, the original Concurrent permission has become Exclusive and mu
 ### Exclusive → Concurrent
 
 ```rust
-lock.acquire_exclusive();
+let guard = lock.acquire_exclusive();
 
 // Exclusive phase.
 
-lock.exclusive_to_concurrent();
+lock.exclusive_to_concurrent(guard);
 
 // The caller now retains Concurrent permission.
 
@@ -347,9 +366,9 @@ assert!(!lock.raise_epoch_id(1));
 ```rust
 lock.acquire_concurrent()?;
 
-if lock.try_concurrent_to_exclusive_with_switch_context_id(100) {
+if let Some(guard) = lock.try_concurrent_to_exclusive_with_switch_context_id(100) {
     // Context changed and Exclusive is held.
-    lock.release_exclusive();
+    lock.release_exclusive(guard);
 } else {
     // The original Concurrent permission was released automatically.
 }
@@ -361,8 +380,8 @@ Epoch variant:
 ```rust
 lock.acquire_concurrent()?;
 
-if lock.try_concurrent_to_exclusive_with_raise_epoch_id(20) {
-    lock.release_exclusive();
+if let Some(guard) = lock.try_concurrent_to_exclusive_with_raise_epoch_id(20) {
+    lock.release_exclusive(guard);
 } else {
     // The original Concurrent permission was released automatically.
 }
@@ -549,13 +568,13 @@ Scope reduces cross-thread misuse by being `!Send` and `!Sync`, while the direct
 Cargo tests:
 
 ```powershell
-cargo test --release --workspace
+cargo test --release --workspace --offline
 ```
 
 Full semantic regression:
 
 ```powershell
-cargo run --release -p cel-test-and-benchmark -- `
+cargo run --release --offline -p cel-test-and-benchmark -- `
   --full-semantics `
   --lock-instances 8 `
   --semantic-workers 4 `
@@ -565,13 +584,13 @@ cargo run --release -p cel-test-and-benchmark -- `
 Deterministic Pipeline semantics:
 
 ```powershell
-cargo run --release -p cel-test-and-benchmark -- --pipeline-semantics
+cargo run --release --offline -p cel-test-and-benchmark -- --pipeline-semantics
 ```
 
 Randomized Pipeline stress:
 
 ```powershell
-cargo run --release -p cel-test-and-benchmark -- `
+cargo run --release --offline -p cel-test-and-benchmark -- `
   --pipeline-stress 10m `
   --lock-instances 8 `
   --semantic-workers 8 `
@@ -581,73 +600,254 @@ cargo run --release -p cel-test-and-benchmark -- `
 Exclusive contention progress:
 
 ```powershell
-cargo run --release -p cel-test-and-benchmark -- `
+cargo run --release --offline -p cel-test-and-benchmark -- `
   --contention-stress 30s `
   --semantic-workers 16
 ```
+
+Endurance test:
+
+```powershell
+cargo run --release --offline -p cel-test-and-benchmark -- `
+  --endurance 24h `
+  --lock-instances 8 `
+  --semantic-workers 8
+```
+
+The formal 30-minute Pipeline stress completed `2,732,232,429` rounds and `14,775,380,351` validated callbacks. The 60-second Exclusive contention run completed `401,719,852` acquisitions with progress from all 32 workers.
 
 See [`TESTING.md`](TESTING.md) for details.
 
 ---
 
-## Performance comparison
+## Performance evaluation summary
 
-The included benchmark uses the random shared-memory Work from the C# project and compares:
+### Scope and comparability
+
+The benchmark compares six strategies:
 
 - `std::sync::Mutex`;
 - `std::sync::RwLock`;
-- `ConcurrentExclusiveLock`;
-- `CEL(ExclusiveOnly)`.
+- `parking_lot::Mutex` 0.12.5;
+- `parking_lot::RwLock` 0.12.5;
+- CEL;
+- `CEL(ExclusiveOnly)`, where every operation uses CEL Exclusive as a mutual-exclusion baseline.
 
-Scenarios:
+Every strategy receives fresh lock and `MemoryWork` instances for every scenario, with the same deterministic random seed, read/write decisions, shared-memory size, and work count. Read/write totals and final state hashes are compared after each scenario; any mismatch fails the benchmark.
+
+The formal data set covers 1, 4, 16, and 64 threads; single-lock and multi-lock layouts; work sizes 1, 64, and 256; and six read/write ratios. It contains 10 configurations and 360 strategy rows. The main 16-thread configuration was repeated three complete times and reports the median; the extended configurations are single runs.
+
+The environment was Rust 1.75.0 on Linux 6.12 x86_64 in KVM, with about four processors reported by `available_parallelism()`. The 16- and 64-thread cases are oversubscribed. These numbers compare relative behavior in the same constrained environment; they are not fixed rankings for Windows, bare metal, NUMA servers, or other Rust versions.
+
+### Complete formal benchmark matrix
+
+All README numbers come directly from `TestBenchmarkResults/final/benchmarks/`; they are not hand-picked samples. The formal run contained these 10 configurations:
+
+| configuration | locks | threads/lock | total threads | operations/thread | memory/lock | work | runs | purpose |
+|---|---:|---:|---:|---:|---:|---:|---:|---|
+| `single_1t_w64` | 1 | 1 | 1 | 100,000 | 64 MiB | 64 | 1 | uncontended baseline |
+| `single_4t_w64` | 1 | 4 | 4 | 30,000 | 64 MiB | 64 | 1 | near available CPU count |
+| `single_16t_w64_r1` | 1 | 16 | 16 | 10,000 | 64 MiB | 64 | run 1 | repeated main configuration |
+| `single_16t_w64_r2` | 1 | 16 | 16 | 10,000 | 64 MiB | 64 | run 2 | repeated main configuration |
+| `single_16t_w64_r3` | 1 | 16 | 16 | 10,000 | 64 MiB | 64 | run 3 | repeated main configuration |
+| `single_64t_w64` | 1 | 64 | 64 | 3,000 | 64 MiB | 64 | 1 | high contention / oversubscription |
+| `single_16t_w1` | 1 | 16 | 16 | 50,000 | 64 MiB | 1 | 1 | very short critical region |
+| `single_16t_w256` | 1 | 16 | 16 | 3,000 | 64 MiB | 256 | 1 | longer critical region |
+| `multi_8x4_w64` | 8 | 4 | 32 | 5,000 | 16 MiB | 64 | 1 | medium multi-lock layout |
+| `multi_64x2_w64` | 64 | 2 | 128 | 2,000 | 4 MiB | 64 | 1 | many independent locks / scheduler pressure |
+
+Each configuration ran all six read/write ratios and all six strategies, for `10 × 6 × 6 = 360` raw result rows. CSV, JSON, per-run logs, scripts, and generated summaries are retained under:
 
 ```text
-100/0
-99.5/0.5
-90/10
-50/50
-30/70
-0/100
+TestBenchmarkResults/final/benchmarks/
 ```
 
-Use meaningful work inside the critical region for primary evaluation. Extremely short regions mostly measure synchronization overhead and cannot fully demonstrate the business value of Concurrent parallelism and preemptive Exclusive acquisition.
+### Uncontended baseline: one lock, one thread, work=64
 
-Single hot lock:
+With one thread there is no lock contention, so the results mostly reflect fixed API, guard, atomic, and work costs (`works/s`):
 
-```powershell
-cargo run --release -p cel-test-and-benchmark -- `
-  --lock-instances 1 `
-  --threads 16 `
-  --operations 100000 `
-  --workload memory `
-  --memory-mb 64 `
-  --read-work 256 `
-  --write-work 256
+| read/write | std Mutex | std RwLock | parking Mutex | parking RwLock | CEL | CEL ExclusiveOnly |
+|---:|---:|---:|---:|---:|---:|---:|
+| 100/0 | 618,810 | 612,489 | **636,147** | 579,282 | 594,852 | 588,689 |
+| 99.5/0.5 | 567,708 | 572,140 | 575,756 | 557,009 | **583,535** | 568,501 |
+| 90/10 | **591,151** | 571,345 | 581,760 | 583,009 | 566,104 | 570,733 |
+| 50/50 | 518,260 | **538,132** | 501,885 | 533,362 | 512,943 | 478,164 |
+| 30/70 | 503,101 | 503,414 | **506,711** | 503,773 | 494,638 | 482,750 |
+| 0/100 | 481,560 | 474,150 | 485,258 | 470,524 | **490,807** | 467,799 |
+
+There is no stable winner in this baseline. It shows that CEL has no abnormal uncontended fixed cost, but uncontended data alone does not establish a concurrency advantage.
+
+### Near machine concurrency: one lock, four threads, work=64
+
+The VM exposes about four available CPUs, so this configuration is closer to actual hardware concurrency than the 16- and 64-thread runs:
+
+| read/write | std Mutex | std RwLock | parking Mutex | parking RwLock | CEL | CEL ExclusiveOnly |
+|---:|---:|---:|---:|---:|---:|---:|
+| 100/0 | 372,767 | **1,787,040** | 428,539 | 1,651,290 | 1,749,075 | 356,814 |
+| 99.5/0.5 | 400,332 | 1,179,255 | 330,386 | 1,484,585 | **2,222,444** | 356,100 |
+| 90/10 | 430,552 | 442,452 | 426,983 | 686,100 | **918,912** | 408,557 |
+| 50/50 | 383,622 | 336,925 | 362,777 | 338,245 | **470,486** | 364,260 |
+| 30/70 | 368,546 | 334,918 | 371,582 | 281,488 | **460,153** | 351,083 |
+| 0/100 | 326,740 | 276,987 | **344,459** | 305,641 | 331,291 | 338,942 |
+
+The standard RwLock narrowly led pure reads; CEL led the mixed ratios from 99.5/0.5 through 30/70; pure writes again favored the simpler mutex-class strategies.
+
+### Main result: one lock, 16 threads, 64 MiB, work=64
+
+Median throughput from three complete runs (`works/s`):
+
+| read/write | std Mutex | std RwLock | parking Mutex | parking RwLock | CEL | CEL ExclusiveOnly |
+|---:|---:|---:|---:|---:|---:|---:|
+| 100/0 | 555,908 | 2,483,393 | 256,295 | 2,539,576 | **2,695,156** | 508,805 |
+| 99.5/0.5 | 519,450 | **1,575,629** | 257,357 | 1,355,039 | 1,491,291 | 519,608 |
+| 90/10 | 540,791 | 379,354 | 255,487 | 463,697 | **713,582** | 524,334 |
+| 50/50 | **494,775** | 312,405 | 235,382 | 221,611 | 470,606 | 475,282 |
+| 30/70 | **467,314** | 409,725 | 239,319 | 214,644 | 440,282 | 465,727 |
+| 0/100 | **466,230** | 460,028 | 242,002 | 234,290 | 456,459 | 453,863 |
+
+Objective observations:
+
+- At 100/0, CEL was about 8.5% above the standard RwLock and 6.1% above parking_lot RwLock; all three remained in the same broad performance class.
+- At 99.5/0.5, the standard RwLock was fastest. CEL was about 5.4% lower, while remaining about 10.1% above parking_lot RwLock in this environment.
+- At 90/10, CEL showed its clearest advantage: about 88% above the standard RwLock and 54% above parking_lot RwLock.
+- At 50/50, the standard Mutex was about 5% faster than CEL, while CEL remained well above both RwLocks.
+- At 30/70 and 0/100, CEL, the standard Mutex, and the standard RwLock converged into a similar range. CEL did not dominate write-heavy workloads.
+- parking_lot remained competitive for pure reads but was slower under write-heavy single-lock contention on this particular Rust 1.75/Linux/KVM/oversubscribed setup. That is an environment-specific result, not a universal conclusion about parking_lot.
+
+### Three-run range for the 16-thread main configuration
+
+The table reports `minimum / median / maximum` for the three primary Concurrent/Exclusive strategies (`works/s`):
+
+| read/write | std RwLock | parking RwLock | CEL |
+|---:|---:|---:|---:|
+| 100/0 | 2,134,108 / 2,483,393 / 2,858,710 | 1,938,258 / 2,539,576 / 3,263,309 | 2,625,290 / 2,695,156 / 3,338,169 |
+| 99.5/0.5 | 1,524,671 / 1,575,629 / 1,586,392 | 1,312,349 / 1,355,039 / 1,355,498 | 1,322,869 / 1,491,291 / 1,748,381 |
+| 90/10 | 357,860 / 379,354 / 441,569 | 460,819 / 463,697 / 473,767 | 621,665 / 713,582 / 814,223 |
+| 50/50 | 301,136 / 312,405 / 313,910 | 221,002 / 221,611 / 255,398 | 426,447 / 470,606 / 475,392 |
+| 30/70 | 388,299 / 409,725 / 425,057 | 203,509 / 214,644 / 229,394 | 419,337 / 440,282 / 458,694 |
+| 0/100 | 442,967 / 460,028 / 473,773 | 232,631 / 234,290 / 234,989 | 445,817 / 456,459 / 481,919 |
+
+The repeated runs are not noise-free, especially for pure reads and some CEL mixed ratios under VM scheduling. The README therefore reports medians rather than selecting the best run. All three raw outputs remain in `TestBenchmarkResults/final/benchmarks/single_16t_w64_r*.log`.
+
+### 64-thread contention
+
+With 64 threads on about four available CPUs, this is mainly an oversubscription and wake-up behavior test:
+
+| read/write | std RwLock | parking RwLock | CEL |
+|---:|---:|---:|---:|
+| 100/0 | 2,655,356 | 2,452,647 | **5,329,420** |
+| 99.5/0.5 | **1,116,340** | 808,276 | 1,060,577 |
+| 90/10 | 262,941 | 284,170 | **654,907** |
+| 50/50 | 206,418 | 201,012 | **459,576** |
+| 30/70 | 439,304 | 199,050 | **455,274** |
+| 0/100 | **452,001** | 229,147 | 440,729 |
+
+CEL was strong at pure reads and 90/10, while the standard RwLock narrowly led at 99.5/0.5 and pure writes. Because the thread count greatly exceeds the available CPUs, scheduler and parking behavior are part of these results; they should not be treated as data from a physical 64-core machine.
+
+`avg write ns` is end-to-end latency from before acquisition through work and release, including queueing and scheduling. Representative 64-thread values:
+
+| read/write | std RwLock | parking RwLock | CEL |
+|---:|---:|---:|---:|
+| 99.5/0.5 | 276,617 ns | 393,168 ns | **97,037 ns** |
+| 90/10 | 105,000 ns | 247,545 ns | **71,791 ns** |
+| 50/50 | 344,689 ns | 297,299 ns | **104,858 ns** |
+| 0/100 | 97,755 ns | 272,694 ns | **94,372 ns** |
+
+### Critical-region length
+
+The relative result changes as work grows:
+
+| work | scenario | std RwLock | parking RwLock | CEL | CEL / std RwLock |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 100/0 | 21,061,252 | 21,405,547 | **31,136,259** | 1.48x |
+| 1 | 90/10 | 4,834,923 | 6,538,139 | **7,861,429** | 1.63x |
+| 1 | 0/100 | **3,092,052** | 1,430,813 | 2,582,370 | 0.84x |
+| 64 | 100/0 | 2,483,393 | 2,539,576 | **2,695,156** | 1.09x |
+| 64 | 90/10 | 379,354 | 463,697 | **713,582** | 1.88x |
+| 64 | 0/100 | **460,028** | 234,290 | 456,459 | 0.99x |
+| 256 | 100/0 | **1,183,342** | 649,555 | 828,225 | 0.70x |
+| 256 | 90/10 | **191,707** | 147,245 | 164,580 | 0.86x |
+| 256 | 0/100 | 112,913 | 73,625 | **120,843** | 1.07x |
+
+The work=64 rows use the three-run median from the main configuration; work=1 and work=256 are single-run extended configurations. This table is intended to show trends rather than claim exact cross-configuration ratios.
+
+Short regions expose synchronization and cache-line costs. As the business work grows, lock differences become a smaller fraction of total time. In the work=256 pure-read and 90/10 cases, the standard RwLock outperformed CEL. Pure writes increasingly become a mutual-exclusion comparison, where CEL's Concurrent design offers no inherent advantage.
+
+### Multi-lock: 8 locks, 4 threads per lock
+
+With eight independent locks and four threads per lock, the ranking was mixed:
+
+| read/write | std RwLock | parking RwLock | CEL |
+|---:|---:|---:|---:|
+| 100/0 | 2,864,727 | **3,042,378** | 2,802,405 |
+| 99.5/0.5 | **6,261,619** | 2,289,339 | 1,970,930 |
+| 90/10 | **2,263,285** | 1,691,974 | 2,193,316 |
+| 50/50 | **2,095,450** | 1,632,556 | 1,750,895 |
+| 30/70 | 2,049,541 | 1,903,300 | **2,564,973** |
+| 0/100 | 1,714,731 | 1,879,581 | **2,012,275** |
+
+This configuration does not support a claim that one lock wins every multi-lock workload. Independent lock progress, memory bandwidth, scheduling, and run duration all influence total throughput.
+
+### 64 locks with two threads per lock
+
+This configuration creates 128 dedicated threads on about four available CPUs, with only 256,000 total operations per strategy/scenario. It is primarily a progress and state-consistency test for many independent locks, not a precise ranking. The three Concurrent/Exclusive strategy throughputs are still reported as measured:
+
+| read/write | std RwLock | parking RwLock | CEL |
+|---:|---:|---:|---:|
+| 100/0 | **3,035,962** | 2,817,826 | 2,815,580 |
+| 99.5/0.5 | 2,773,926 | 3,250,122 | **11,259,869** |
+| 90/10 | 3,197,306 | 2,551,568 | **4,544,870** |
+| 50/50 | 3,112,502 | 4,042,819 | **8,874,252** |
+| 30/70 | 2,882,352 | **7,186,587** | 5,889,522 |
+| 0/100 | 2,560,876 | **10,973,384** | 2,082,153 |
+
+The ranking changes sharply across ratios, which is consistent with a short run under 128-thread oversubscription. What can be asserted is that all six strategies completed the same read/write counts and produced the same final state hashes. These values do not establish stable order-of-magnitude advantages.
+
+### Correctness and sustained stress validation
+
+In addition to the performance runs, this release completed the following validation chain:
+
+| Validation | Result |
+|---|---|
+| `cargo fmt --check` | PASS |
+| `cargo clippy --workspace --all-targets -- -D warnings` | PASS |
+| Release workspace build | PASS |
+| All Release Cargo tests | PASS |
+| Full semantic regression | PASS |
+| Deterministic Pipeline semantics | PASS |
+| Empty Cargo cache, fully offline rebuild | PASS |
+| 60-second Exclusive contention | `401,719,852` acquisitions; all 32 workers made progress |
+| 60-second Endurance | 58 deterministic batches |
+| 30-minute Pipeline stress | `2,732,232,429` rounds; `14,775,380,351` validated callbacks |
+
+After the 30-minute Pipeline run, both the lock and the independent access validator returned to Idle. Raw logs are stored at:
+
+```text
+TestBenchmarkResults/final/pipeline-stress-30m.log
+TestBenchmarkResults/final/contention-stress-60s.log
+TestBenchmarkResults/final/endurance-60s.log
+TestBenchmarkResults/final/full-semantics.log
+TestBenchmarkResults/final/pipeline-semantics.log
 ```
 
-Many entity locks:
+### Overall interpretation
 
-```powershell
-cargo run --release -p cel-test-and-benchmark -- `
-  --lock-instances 8 `
-  --threads 8 `
-  --operations 100000 `
-  --workload memory `
-  --memory-mb 64 `
-  --read-work 640 `
-  --write-work 640
+The cautious conclusions from this environment are:
+
+- CEL's strongest region was a mixed workload where reads should remain lightweight while pending writes should stop new readers; 90/10 was the clearest example.
+- CEL was competitive for pure reads but did not always beat mature RwLocks. The standard RwLock won some longer-work configurations.
+- CEL does not inherently beat a Mutex in write-heavy or pure-write workloads. As the write ratio grows, a simpler Mutex can be equally fast or faster.
+- parking_lot is an essential high-performance baseline, but its local result must not be generalized across platforms.
+- Throughput and write latency must be considered together.
+- CEL also provides in-place upgrade/downgrade, ContextID/EpochID, and Pipeline semantics that ordinary RwLocks do not directly provide. Performance tables measure cost; they do not replace functional selection criteria.
+
+The complete 360-row data set and raw results are available in [`PERFORMANCE.md`](PERFORMANCE.md) and:
+
+```text
+TestBenchmarkResults/final/benchmarks/all_results.csv
+TestBenchmarkResults/final/benchmarks/all_results.json
+TestBenchmarkResults/final/benchmarks/
 ```
-
-Key metrics:
-
-- `works/s`: total throughput;
-- `works/s/lock`: throughput per independent entity lock;
-- `avg write ns`: average complete Exclusive request, wait, work, and release time;
-- `state`: final business state, which must match across strategies.
-
-Draw conclusions from repeated Release runs on the target machine. Do not compare raw numbers across different language runtimes as though they were the same benchmark environment.
-
-See [`PERFORMANCE.md`](PERFORMANCE.md).
 
 ---
 
@@ -663,7 +863,7 @@ AtomicI32  // EpochID
 
 Protocol transitions use `SeqCst`; observational reads use Acquire; unconditional business-ID stores use Release. The first port favors correspondence with C# `Interlocked` / `Volatile` semantics over aggressive memory-order weakening.
 
-The internal monitor uses only Rust standard-library synchronization. The standard library maps its `Mutex` and `Condvar` to the target operating system on Windows, Linux, macOS, Android, iOS, and other supported targets.
+The internal monitor is the Rust standard-library `Mutex<()>`; the standard library maps it to the target operating system on Windows, Linux, macOS, Android, iOS, and other supported targets.
 
 Targets without 64-bit atomics, `no_std` bare-metal environments, and systems without blocking thread scheduling are outside the current scope.
 

@@ -1,0 +1,7 @@
+ConcurrentExclusiveLock Rust full semantics
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:409:9:
+intentional scope unwind
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+PASS: full semantic regression

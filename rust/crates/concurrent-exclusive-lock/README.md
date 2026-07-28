@@ -82,24 +82,21 @@ This addresses a common business problem in conventional reader/writer schedulin
 
 ### Internal monitor
 
-Rust's standard `Mutex` API intentionally unlocks by dropping a Guard and does not expose a public raw `lock()/unlock()` pair that can be retained across separate methods. To preserve the direct C#/Java-style lock API, this crate implements an internal standard-library-only `RawMonitor` from:
+The C# reference `Monitor` is mapped directly to Rust's standard
+`std::sync::Mutex<()>`. Rust releases a mutex by dropping its `MutexGuard`, so
+Exclusive acquisition returns an `ExclusiveGuard` that retains the real standard
+mutex guard across the Exclusive business region. No `RawMonitor`, held-state
+atomics, waiter counters, `Condvar`, or custom fairness protocol is added.
 
-```text
-AtomicBool      monitor-held state
-AtomicUsize     waiter pressure
-Mutex + Condvar blocking wait and wake-up
-```
+The unavoidable Rust API adaptation is therefore:
 
-The monitor is:
+- `acquire_exclusive()` returns `ExclusiveGuard`;
+- explicit release consumes that guard;
+- downgrade consumes that guard and retains Concurrent permission;
+- dropping the guard releases Exclusive permission safely.
 
-- non-recursive;
-- held across `acquire_exclusive()` and `release_exclusive()`;
-- shared by ordinary Exclusive and upgrade scheduling;
-- resistant to unrestricted barging through waiter tracking;
-- not a ticket queue;
-- not a strict FIFO guarantee.
-
-The objective is the same type of balance provided by the C# `Monitor`: useful ordering and blocking coordination without paying the cost or head-of-line blocking of absolute fairness.
+The counter state machine, upgrade priority, branch order, and release order remain
+aligned with the C# reference implementation.
 
 ### Upgrade priority
 
@@ -154,7 +151,7 @@ target\release\cel-test-and-benchmark.exe   # Windows
 target/release/cel-test-and-benchmark       # Linux/macOS
 ```
 
-The workspace has no third-party crate dependencies. The core library and the test/benchmark executable can therefore build with an empty Cargo registry cache once the Rust toolchain is installed.
+The core library crate has no third-party dependencies. The workspace benchmark additionally compares parking_lot; its source and required dependencies are vendored at the workspace root so offline builds remain available.
 
 ---
 
@@ -215,11 +212,11 @@ A limit below 1 returns `InvalidMaxConcurrent`. Blocking acquisition returns `Ca
 ### Exclusive
 
 ```rust
-lock.acquire_exclusive();
+let guard = lock.acquire_exclusive();
 
 // Isolated business region.
 
-lock.release_exclusive();
+lock.release_exclusive(guard);
 ```
 
 Exclusive permission is thread-affine. Acquisition, release, or downgrade must occur on the same thread.
@@ -249,8 +246,8 @@ if let Some(id) = lock.try_acquire_concurrent_for(Duration::from_millis(100))? {
 Preemptive Try:
 
 ```rust
-if lock.try_acquire_exclusive(true) {
-    lock.release_exclusive();
+if let Some(guard) = lock.try_acquire_exclusive(true) {
+    lock.release_exclusive(guard);
 }
 ```
 
@@ -259,16 +256,16 @@ if lock.try_acquire_exclusive(true) {
 Idle-only immediate attempt:
 
 ```rust
-if lock.try_acquire_exclusive(false) {
-    lock.release_exclusive();
+if let Some(guard) = lock.try_acquire_exclusive(false) {
+    lock.release_exclusive(guard);
 }
 ```
 
 Timed preemptive attempt:
 
 ```rust
-if lock.try_acquire_exclusive_for(Duration::from_millis(100)) {
-    lock.release_exclusive();
+if let Some(guard) = lock.try_acquire_exclusive_for(Duration::from_millis(100)) {
+    lock.release_exclusive(guard);
 }
 ```
 
@@ -285,11 +282,11 @@ lock.acquire_concurrent()?;
 
 // Concurrent phase.
 
-lock.concurrent_to_exclusive();
+let guard = lock.concurrent_to_exclusive();
 
 // Continuous Exclusive phase; no release/reacquire gap.
 
-lock.release_exclusive();
+lock.release_exclusive(guard);
 # Ok::<(), concurrent_exclusive_lock::ConcurrentExclusiveLockError>(())
 ```
 
@@ -298,11 +295,11 @@ After conversion, the original Concurrent permission has become Exclusive and mu
 ### Exclusive → Concurrent
 
 ```rust
-lock.acquire_exclusive();
+let guard = lock.acquire_exclusive();
 
 // Exclusive phase.
 
-lock.exclusive_to_concurrent();
+lock.exclusive_to_concurrent(guard);
 
 // The caller now retains Concurrent permission.
 
@@ -347,9 +344,9 @@ assert!(!lock.raise_epoch_id(1));
 ```rust
 lock.acquire_concurrent()?;
 
-if lock.try_concurrent_to_exclusive_with_switch_context_id(100) {
+if let Some(guard) = lock.try_concurrent_to_exclusive_with_switch_context_id(100) {
     // Context changed and Exclusive is held.
-    lock.release_exclusive();
+    lock.release_exclusive(guard);
 } else {
     // The original Concurrent permission was released automatically.
 }
@@ -361,8 +358,8 @@ Epoch variant:
 ```rust
 lock.acquire_concurrent()?;
 
-if lock.try_concurrent_to_exclusive_with_raise_epoch_id(20) {
-    lock.release_exclusive();
+if let Some(guard) = lock.try_concurrent_to_exclusive_with_raise_epoch_id(20) {
+    lock.release_exclusive(guard);
 } else {
     // The original Concurrent permission was released automatically.
 }
@@ -555,7 +552,7 @@ cargo test --release --workspace
 Full semantic regression:
 
 ```powershell
-cargo run --release -p cel-test-and-benchmark -- `
+cargo run --release --offline -p cel-test-and-benchmark -- `
   --full-semantics `
   --lock-instances 8 `
   --semantic-workers 4 `
@@ -565,13 +562,13 @@ cargo run --release -p cel-test-and-benchmark -- `
 Deterministic Pipeline semantics:
 
 ```powershell
-cargo run --release -p cel-test-and-benchmark -- --pipeline-semantics
+cargo run --release --offline -p cel-test-and-benchmark -- --pipeline-semantics
 ```
 
 Randomized Pipeline stress:
 
 ```powershell
-cargo run --release -p cel-test-and-benchmark -- `
+cargo run --release --offline -p cel-test-and-benchmark -- `
   --pipeline-stress 10m `
   --lock-instances 8 `
   --semantic-workers 8 `
@@ -581,12 +578,14 @@ cargo run --release -p cel-test-and-benchmark -- `
 Exclusive contention progress:
 
 ```powershell
-cargo run --release -p cel-test-and-benchmark -- `
+cargo run --release --offline -p cel-test-and-benchmark -- `
   --contention-stress 30s `
   --semantic-workers 16
 ```
 
-See [`TESTING.md`](https://github.com/WangHHB/ConcurrentExclusiveLock/blob/main/rust/TESTING.md) for details.
+The formal 30-minute Pipeline stress completed `2,732,232,429` rounds and `14,775,380,351` validated callbacks. The 60-second Exclusive contention run completed `401,719,852` acquisitions with progress from all 32 workers.
+
+See [`TESTING.md`](TESTING.md) for details.
 
 ---
 
@@ -615,7 +614,7 @@ Use meaningful work inside the critical region for primary evaluation. Extremely
 Single hot lock:
 
 ```powershell
-cargo run --release -p cel-test-and-benchmark -- `
+cargo run --release --offline -p cel-test-and-benchmark -- `
   --lock-instances 1 `
   --threads 16 `
   --operations 100000 `
@@ -628,7 +627,7 @@ cargo run --release -p cel-test-and-benchmark -- `
 Many entity locks:
 
 ```powershell
-cargo run --release -p cel-test-and-benchmark -- `
+cargo run --release --offline -p cel-test-and-benchmark -- `
   --lock-instances 8 `
   --threads 8 `
   --operations 100000 `
@@ -647,7 +646,7 @@ Key metrics:
 
 Draw conclusions from repeated Release runs on the target machine. Do not compare raw numbers across different language runtimes as though they were the same benchmark environment.
 
-See [`PERFORMANCE.md`](https://github.com/WangHHB/ConcurrentExclusiveLock/blob/main/rust/PERFORMANCE.md).
+See [`PERFORMANCE.md`](PERFORMANCE.md).
 
 ---
 
@@ -663,7 +662,7 @@ AtomicI32  // EpochID
 
 Protocol transitions use `SeqCst`; observational reads use Acquire; unconditional business-ID stores use Release. The first port favors correspondence with C# `Interlocked` / `Volatile` semantics over aggressive memory-order weakening.
 
-The internal monitor uses only Rust standard-library synchronization. The standard library maps its `Mutex` and `Condvar` to the target operating system on Windows, Linux, macOS, Android, iOS, and other supported targets.
+The internal monitor is the Rust standard-library `Mutex<()>`; the standard library maps it to the target operating system on Windows, Linux, macOS, Android, iOS, and other supported targets.
 
 Targets without 64-bit atomics, `no_std` bare-metal environments, and systems without blocking thread scheduling are outside the current scope.
 

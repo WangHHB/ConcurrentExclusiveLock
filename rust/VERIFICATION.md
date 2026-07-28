@@ -1,53 +1,71 @@
-# Verification Status
+# Verification status
 
-## Implementation review
-
-The Rust port was produced against the complete C# reference project and follows the same protocol structure:
-
-- low 32 counter bits: Concurrent holder count;
-- high 32 counter bits: Exclusive/upgrade pressure;
-- preemptive ordinary Exclusive;
-- upgrade priority over ordinary Exclusive;
-- in-place downgrade behavior;
-- ContextID / EpochID conditional convergence;
-- conditional-upgrade failure automatically releases the original Concurrent permission;
-- Scope final-state release;
-- synchronous Pipeline transition table and panic-path cleanup;
-- no ownership token in the direct core API;
-- no ticket queue or strict FIFO guarantee.
-
-The core crate contains no `unsafe` code. The benchmark uses a narrowly scoped `UnsafeCell` adapter so CEL can protect a shared `MemoryWork`; that unsafe code is outside the library crate.
-
-## Required local verification
-
-This package must be verified with an installed Rust toolchain before publication:
-
-```powershell
-.\build.ps1
-.\run-tests.ps1
-```
-
-The scripts perform or expose the following checks:
+## Toolchain and platform
 
 ```text
-cargo fmt --all
+rustc 1.75.0
+cargo 1.75.0
+Linux 6.12.13 x86_64 under KVM
+AMD EPYC 9V74
+available_parallelism() reported by Rust: 4
+```
+
+## Source and build checks
+
+Passed:
+
+```text
 cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --release --workspace
-full semantic regression
-Pipeline semantic regression
-short randomized Pipeline stress
+cargo clippy --workspace --all-targets --offline --no-deps -- -D warnings
+cargo check --workspace --offline
+cargo build --release --workspace --offline
+cargo test --release --workspace --offline
 ```
 
-For release validation also run:
+The core library has `#![forbid(unsafe_code)]`. The benchmark uses one narrowly scoped `UnsafeCell` adapter to expose the same mutable `MemoryWork` under CEL Exclusive protection.
 
-```powershell
-cargo run --release -p cel-test-and-benchmark -- --pipeline-stress 24h --lock-instances 8 --semantic-workers 8
-cargo run --release -p cel-test-and-benchmark -- --contention-stress 60s --semantic-workers 32
+## Semantic validation
+
+Passed:
+
+- integration tests;
+- full deterministic and randomized semantic regression;
+- deterministic Pipeline regression;
+- 30-second randomized Pipeline smoke stress;
+- formal 30-minute randomized Pipeline stress: `2,732,232,429` rounds and `14,775,380,351` validated callbacks;
+- 60-second Exclusive contention/progress stress: 32 workers and `401,719,852` acquisitions, with progress from every worker;
+- 60-second Endurance run: 58 deterministic batches;
+- final Idle-state checks after every semantic/stress mode.
+
+Authoritative logs are under `TestResults/final/`.
+
+## Benchmark validation
+
+Ten complete benchmark configurations were executed, covering:
+
+- 1, 4, 16, and 64 threads on one lock;
+- three repeated 16-thread main runs;
+- work sizes 1, 64, and 256;
+- 8 locks × 4 threads;
+- 64 locks × 2 threads;
+- all six read/write ratios;
+- `std::sync::Mutex`, `std::sync::RwLock`, `parking_lot::Mutex`, `parking_lot::RwLock`, CEL, and CEL(ExclusiveOnly).
+
+Every strategy/scenario completed with the same final state hash. Raw logs, CSV, JSON, and the repeated-run median table are under `TestResults/final/benchmarks/`.
+
+## Offline dependency validation
+
+The core crate remains dependency-free. The benchmark's `parking_lot 0.12.5` dependency and required crates are included under `vendor/`. A clean Cargo lockfile was generated with path sources, and the complete workspace builds with `--offline`, including a fresh Release build with an empty `CARGO_HOME`.
+
+## Windows executable status
+
+The source tree includes Windows support, `windows-link`, offline dependencies, and `build-windows.ps1`. The Linux validation container does not contain:
+
+```text
+Rust target: x86_64-pc-windows-gnu
+MinGW linker: x86_64-w64-mingw32-gcc
 ```
 
-and execute the suite on Windows, Linux, and macOS.
+The attempted cross-check fails before compiling project code because the Windows Rust standard library (`core`, `alloc`, and `compiler_builtins`) is not installed. The exact output is retained in `TestResults/final/windows-cross-check.log`.
 
-## Sandbox limitation
-
-The generation environment did not contain `rustc` or `cargo`, and external toolchain installation was unavailable. Therefore this archive has received static source/protocol review, but no claim is made here that it was compiled or executed inside that environment. The first authoritative verification is the output of the included local build and test scripts.
+Therefore this package includes a verified Linux x64 executable. A Windows `.exe` must be produced by running `build-windows.ps1` on Windows or by installing the missing cross target and linker.

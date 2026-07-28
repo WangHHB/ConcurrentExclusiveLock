@@ -1,0 +1,5 @@
+ConcurrentExclusiveLock Rust Pipeline semantics
+thread 'main' panicked at crates/test-and-benchmark/src/semantic.rs:488:13:
+intentional Pipeline unwind
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+PASS: Pipeline semantic regression

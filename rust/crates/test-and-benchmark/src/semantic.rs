@@ -1,7 +1,6 @@
 use crate::options::Options;
 use concurrent_exclusive_lock::{
-    ConcurrentExclusiveLock,
-    ConcurrentExclusiveLockPipeline, ConcurrentExclusiveLockScope,
+    ConcurrentExclusiveLock, ConcurrentExclusiveLockPipeline, ConcurrentExclusiveLockScope,
     ConcurrentExclusiveLockSegment, ConcurrentExclusiveLockState, IDType,
 };
 use std::hint::spin_loop;
@@ -38,13 +37,14 @@ pub fn run_pipeline_stress(options: &Options, duration: Duration) {
         .map(|_| Arc::new(AccessValidator::default()))
         .collect();
     let total_workers = options.lock_instances * options.semantic_workers;
-    let barrier = Arc::new(Barrier::new(total_workers));
+    let barrier = Arc::new(Barrier::new(total_workers + 1));
     let total_rounds = AtomicU64::new(0);
+    let live_rounds: Vec<AtomicU64> = (0..total_workers).map(|_| AtomicU64::new(0)).collect();
     let run_duration = duration.max(Duration::from_millis(1));
 
     thread::scope(|scope| {
         let mut handles = Vec::with_capacity(total_workers);
-        for worker_index in 0..total_workers {
+        for (worker_index, worker_rounds) in live_rounds.iter().enumerate() {
             let lock_index = worker_index / options.semantic_workers;
             let lock = Arc::clone(&locks[lock_index]);
             let validator = Arc::clone(&validators[lock_index]);
@@ -73,10 +73,42 @@ pub fn run_pipeline_stress(options: &Options, duration: Duration) {
                         .do_pipeline(&mut segments)
                         .expect("Pipeline Concurrent capacity exceeded");
                     round += 1;
+                    if round & 0xFFF == 0 {
+                        worker_rounds.store(round, Ordering::Relaxed);
+                    }
                 }
+                worker_rounds.store(round, Ordering::Relaxed);
                 total_rounds.fetch_add(round, Ordering::Relaxed);
             }));
         }
+
+        barrier.wait();
+        let report_start = Instant::now();
+        let report_interval = run_duration
+            .checked_div(10)
+            .unwrap_or(Duration::from_secs(1))
+            .clamp(Duration::from_secs(1), Duration::from_secs(60));
+        let mut next_report = report_interval;
+        while report_start.elapsed() < run_duration {
+            let elapsed = report_start.elapsed();
+            if elapsed >= next_report {
+                let rounds = live_rounds
+                    .iter()
+                    .map(|value| value.load(Ordering::Relaxed))
+                    .sum::<u64>();
+                let callbacks = validators
+                    .iter()
+                    .map(|value| value.operations.load(Ordering::Relaxed))
+                    .sum::<u64>();
+                println!(
+                    "progress: elapsed={:.1}s, rounds={rounds}, callbacks={callbacks}",
+                    elapsed.as_secs_f64()
+                );
+                next_report += report_interval;
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+
         for handle in handles {
             handle.join().expect("Pipeline stress worker panicked");
         }
@@ -84,7 +116,10 @@ pub fn run_pipeline_stress(options: &Options, duration: Duration) {
 
     for (index, validator) in validators.iter().enumerate() {
         validator.assert_idle();
-        assert_eq!(locks[index].observed_state(), ConcurrentExclusiveLockState::Idle);
+        assert_eq!(
+            locks[index].observed_state(),
+            ConcurrentExclusiveLockState::Idle
+        );
     }
     println!(
         "PASS: {} randomized Pipeline rounds, {} validated callbacks",
@@ -110,16 +145,15 @@ pub fn run_contention_stress(options: &Options, duration: Duration) {
 
     thread::scope(|scope| {
         let mut handles = Vec::with_capacity(workers);
-        for worker in 0..workers {
+        for count in counts.iter().take(workers) {
             let lock = Arc::clone(&lock);
             let active = Arc::clone(&active);
             let barrier = Arc::clone(&barrier);
-            let count = &counts[worker];
             handles.push(scope.spawn(move || {
                 barrier.wait();
                 let deadline = Instant::now() + run_duration;
                 while Instant::now() < deadline {
-                    lock.acquire_exclusive();
+                    let guard = lock.acquire_exclusive();
                     assert!(
                         active
                             .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
@@ -128,7 +162,7 @@ pub fn run_contention_stress(options: &Options, duration: Duration) {
                     );
                     spin_loop();
                     active.store(false, Ordering::SeqCst);
-                    lock.release_exclusive();
+                    lock.release_exclusive(guard);
                     count.fetch_add(1, Ordering::Relaxed);
                 }
             }));
@@ -146,7 +180,10 @@ pub fn run_contention_stress(options: &Options, duration: Duration) {
     let minimum = acquisitions.iter().copied().min().unwrap_or(0);
     let maximum = acquisitions.iter().copied().max().unwrap_or(0);
     assert!(total > 0);
-    assert!(minimum > 0, "at least one Exclusive waiter made no progress");
+    assert!(
+        minimum > 0,
+        "at least one Exclusive waiter made no progress"
+    );
     assert_eq!(lock.observed_state(), ConcurrentExclusiveLockState::Idle);
     println!(
         "PASS: workers={workers}, acquisitions={total}, min/worker={minimum}, max/worker={maximum}"
@@ -254,9 +291,9 @@ fn exclusive_isolation() {
         handles.push(thread::spawn(move || {
             for operation in 0..200 {
                 if (worker + operation) % 5 == 0 {
-                    lock.acquire_exclusive();
+                    let guard = lock.acquire_exclusive();
                     validator.exclusive_callback();
-                    lock.release_exclusive();
+                    lock.release_exclusive(guard);
                 } else {
                     lock.acquire_concurrent().unwrap();
                     validator.concurrent_callback();
@@ -278,14 +315,17 @@ fn preemptive_exclusive() {
     let writer_lock = Arc::clone(&lock);
     let writer_entered = Arc::clone(&entered);
     let handle = thread::spawn(move || {
-        writer_lock.acquire_exclusive();
+        let guard = writer_lock.acquire_exclusive();
         writer_entered.store(true, Ordering::SeqCst);
-        writer_lock.release_exclusive();
+        writer_lock.release_exclusive(guard);
     });
 
     let deadline = Instant::now() + Duration::from_secs(2);
     while lock.observed_state() != ConcurrentExclusiveLockState::Exclusive {
-        assert!(Instant::now() < deadline, "Exclusive pressure was not observed");
+        assert!(
+            Instant::now() < deadline,
+            "Exclusive pressure was not observed"
+        );
         thread::yield_now();
     }
     assert!(lock.try_acquire_concurrent().unwrap().is_none());
@@ -307,14 +347,12 @@ fn upgrade_and_downgrade() {
         handles.push(thread::spawn(move || {
             lock.acquire_concurrent().unwrap();
             barrier.wait();
-            lock.concurrent_to_exclusive();
-            assert!(
-                active_exclusive
-                    .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-                    .is_ok()
-            );
+            let guard = lock.concurrent_to_exclusive();
+            assert!(active_exclusive
+                .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok());
             active_exclusive.store(false, Ordering::SeqCst);
-            lock.exclusive_to_concurrent();
+            lock.exclusive_to_concurrent(guard);
             lock.release_concurrent();
         }));
     }
@@ -345,14 +383,14 @@ fn conditional_single_winner(epoch: bool) {
         handles.push(thread::spawn(move || {
             lock.acquire_concurrent().unwrap();
             barrier.wait();
-            let success = if epoch {
+            let guard = if epoch {
                 lock.try_concurrent_to_exclusive_with_raise_epoch_id(1)
             } else {
                 lock.try_concurrent_to_exclusive_with_switch_context_id(1)
             };
-            if success {
+            if let Some(guard) = guard {
                 successes.fetch_add(1, Ordering::SeqCst);
-                lock.release_exclusive();
+                lock.release_exclusive(guard);
             }
         }));
     }
@@ -371,8 +409,10 @@ fn scope_unwind_release() {
         panic!("intentional scope unwind");
     }));
     assert!(result.is_err());
-    assert!(lock.try_acquire_exclusive(false));
-    lock.release_exclusive();
+    let guard = lock
+        .try_acquire_exclusive(false)
+        .expect("lock should be idle after unwind");
+    lock.release_exclusive(guard);
 
     {
         let mut scope = ConcurrentExclusiveLockScope::new(&lock);
@@ -383,17 +423,19 @@ fn scope_unwind_release() {
 
 fn timeout_contracts() {
     let lock = Arc::new(ConcurrentExclusiveLock::new());
-    lock.acquire_exclusive();
+    let guard = lock.acquire_exclusive();
     let other = Arc::clone(&lock);
     let handle = thread::spawn(move || {
         assert!(other
             .try_acquire_concurrent_for(Duration::from_millis(20))
             .unwrap()
             .is_none());
-        assert!(!other.try_acquire_exclusive_for(Duration::from_millis(20)));
+        assert!(other
+            .try_acquire_exclusive_for(Duration::from_millis(20))
+            .is_none());
     });
     handle.join().unwrap();
-    lock.release_exclusive();
+    lock.release_exclusive(guard);
 }
 
 fn snapshot_contracts() {
@@ -401,13 +443,19 @@ fn snapshot_contracts() {
     assert_eq!(lock.observed_state(), ConcurrentExclusiveLockState::Idle);
     assert_eq!(lock.observed_contention(), 0);
     lock.acquire_concurrent().unwrap();
-    assert_eq!(lock.observed_state(), ConcurrentExclusiveLockState::Concurrent);
+    assert_eq!(
+        lock.observed_state(),
+        ConcurrentExclusiveLockState::Concurrent
+    );
     assert_eq!(lock.observed_contention(), 0);
     lock.release_concurrent();
-    lock.acquire_exclusive();
-    assert_eq!(lock.observed_state(), ConcurrentExclusiveLockState::Exclusive);
+    let guard = lock.acquire_exclusive();
+    assert_eq!(
+        lock.observed_state(),
+        ConcurrentExclusiveLockState::Exclusive
+    );
     assert!(lock.observed_contention() >= 1);
-    lock.release_exclusive();
+    lock.release_exclusive(guard);
 }
 
 fn pipeline_contracts() {
@@ -442,8 +490,10 @@ fn pipeline_contracts() {
         pipeline.do_pipeline(&mut panic_segments).unwrap();
     }));
     assert!(unwind.is_err());
-    assert!(lock.try_acquire_exclusive(false));
-    lock.release_exclusive();
+    let guard = lock
+        .try_acquire_exclusive(false)
+        .expect("lock should be idle after unwind");
+    lock.release_exclusive(guard);
 }
 
 fn randomized_legal_paths(options: &Options) {
@@ -472,21 +522,21 @@ fn randomized_legal_paths(options: &Options) {
                             lock.release_concurrent();
                         }
                         1 => {
-                            lock.acquire_exclusive();
+                            let guard = lock.acquire_exclusive();
                             validator.exclusive_callback();
-                            lock.release_exclusive();
+                            lock.release_exclusive(guard);
                         }
                         2 => {
                             lock.acquire_concurrent().unwrap();
                             validator.concurrent_callback();
-                            lock.concurrent_to_exclusive();
+                            let guard = lock.concurrent_to_exclusive();
                             validator.exclusive_callback();
-                            lock.release_exclusive();
+                            lock.release_exclusive(guard);
                         }
                         3 => {
-                            lock.acquire_exclusive();
+                            let guard = lock.acquire_exclusive();
                             validator.exclusive_callback();
-                            lock.exclusive_to_concurrent();
+                            lock.exclusive_to_concurrent(guard);
                             validator.concurrent_callback();
                             lock.release_concurrent();
                         }
@@ -513,7 +563,10 @@ fn randomized_legal_paths(options: &Options) {
 
     for (index, validator) in validators.iter().enumerate() {
         validator.assert_idle();
-        assert_eq!(locks[index].observed_state(), ConcurrentExclusiveLockState::Idle);
+        assert_eq!(
+            locks[index].observed_state(),
+            ConcurrentExclusiveLockState::Idle
+        );
     }
 }
 

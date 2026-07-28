@@ -19,7 +19,7 @@ if (-not (Test-Path $cargo) -and -not $cargoCommand) {
 }
 
 $arguments = @(
-    'run', '--release', '-p', 'cel-test-and-benchmark', '--',
+    'run', '--release', '--offline', '-p', 'cel-test-and-benchmark', '--',
     '--lock-instances', $LockInstances,
     '--threads', $ThreadsPerLock,
     '--operations', $Operations,

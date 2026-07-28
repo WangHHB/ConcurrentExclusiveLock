@@ -9,3 +9,4 @@ publish = false
 
 [dependencies]
 concurrent-exclusive-lock = { path = "../concurrent-exclusive-lock" }
+parking_lot = { path = "../../vendor/parking_lot" }

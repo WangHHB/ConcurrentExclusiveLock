@@ -24,14 +24,19 @@ Write-Host "Cargo: $cargo"
 & $cargo fmt --all -- --check
 
 if (-not $SkipClippy) {
-    & $cargo clippy --workspace --all-targets -- -D warnings
+    & $cargo clippy --workspace --all-targets --offline --no-deps -- -D warnings
 }
 
-& $cargo build --release --workspace
+& $cargo build --release --workspace --offline
 
 if (-not $SkipTests) {
-    & $cargo test --release --workspace
+    & $cargo test --release --workspace --offline
 }
 
+New-Item -ItemType Directory -Force -Path 'Artifacts\windows-x64' | Out-Null
+$exe = 'target\release\cel-test-and-benchmark.exe'
+if (Test-Path $exe) {
+    Copy-Item $exe 'Artifacts\windows-x64\cel-test-and-benchmark.exe' -Force
+}
 Write-Host "Build completed."
-Write-Host "Benchmark executable: target\release\cel-test-and-benchmark.exe"
+Write-Host "Benchmark executable: Artifacts\windows-x64\cel-test-and-benchmark.exe"
