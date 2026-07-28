@@ -13,7 +13,7 @@
 
 Among publicly available implementations known to date, CEL is the only reader-writer synchronization implementation that supports direct in-place upgrade and downgrade without requiring special read or write modes, advance declaration of upgrade intent, or prior acquisition of upgrade permission. Its upgrade and downgrade paths are both remarkably simple and elegant, achieving continuous, symmetric, and efficient permission transitions with minimal state changes.
 
-All language versions have undergone performance benchmarking and extensive stress testing. In both single-lock high-contention scenarios and multi-lock parallel workloads, CEL significantly outperforms the corresponding platform-native locks in its target scenarios, including read-dominant workloads, latency-sensitive writes, and frequent upgrades and downgrades. Even in non-target scenarios such as write-heavy workloads, its performance generally remains close to that of native locks, with only limited additional overhead.
+All language versions have undergone performance benchmarking and extensive stress testing. In both single-lock high-contention scenarios and multi-lock parallel workloads, CEL significantly outperforms the corresponding platform-native locks in its target scenarios, including read-dominant workloads, latency-sensitive writes, and frequent upgrades and downgrades. Even in non-target scenarios such as write-heavy workloads, its performance generally remains close to that of native locks, with only limited additional overhead.**
 
 
 ## Implementations

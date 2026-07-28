@@ -18,9 +18,9 @@
     <RepositoryUrl>https://github.com/WangHHB/ConcurrentExclusiveLock</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
 
-    <PackageLicenseExpression>MIT or Apache-2.0</PackageLicenseExpression>
+    <PackageLicenseExpression>MIT OR Apache-2.0</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <PackageReleaseNotes>Initial NuGet package release for version 1.1.1.</PackageReleaseNotes>
+    <PackageReleaseNotes>Updated licensing to MIT OR Apache-2.0.</PackageReleaseNotes>
 
     <IsPackable>true</IsPackable>
     <IncludeSymbols>true</IncludeSymbols>
