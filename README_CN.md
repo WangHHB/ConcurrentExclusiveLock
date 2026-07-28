@@ -21,7 +21,7 @@
 - [C#](./csharp) — 参考实现
 - [Java](./java/README_CN.md) — 支持 Java 17+，已发布到 [Maven Central](https://central.sonatype.com/artifact/io.github.wanghhb/concurrent-exclusive-lock)
 - [C++](./cpp/README_CN.md) — 核心锁使用 C 实现，C++ 提供 Scope 和 Pipeline 封装。
-- [Rust](./rust/README_CN.md)
+- [Rust](./rust/README_CN.md) — 已发布至 [crates.io](https://crates.io/crates/concurrent-exclusive-lock)。
 
 
 ## 安装
