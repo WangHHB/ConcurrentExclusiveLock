@@ -128,7 +128,44 @@ Depending on the selected mode, the tests validate one or more of the following 
 
 ---
 
-## 4. Runtime Parameters
+## 4. Simultaneous Upgrade Contention Test
+
+The dedicated command below creates the most concentrated upgrade-contention window supported by the protocol:
+
+```powershell
+.\TestAndBenchmark.exe --upgrade-contention n m
+```
+
+The test performs these phases in order:
+
+1. `n` dedicated threads acquire Concurrent and stop at a barrier until every Concurrent holder has entered.
+2. `m` new dedicated threads are created for ordinary preemptive Exclusive acquisition. `m` may be `0`.
+3. When `m > 0`, the test waits until an ordinary Exclusive request has actually established the preemptive contention window; merely creating the threads is not treated as sufficient pressure.
+4. All `n` Concurrent holders are released from one gate and call `ConcurrentToExclusive()` simultaneously.
+5. The test measures from that common upgrade release until the final upgraded Exclusive holder has released Exclusive.
+
+The test additionally verifies that:
+
+- all upgraded Exclusive regions remain mutually isolated;
+- ordinary Exclusive contenders do not enter before the complete upgrade chain drains;
+- every upgrade and every ordinary Exclusive request completes;
+- the lock returns to `Idle` with zero observed contention.
+
+Examples:
+
+```powershell
+# Only simultaneous upgrades
+.\TestAndBenchmark.exe --upgrade-contention 64 0
+
+# 64 simultaneous upgrades while 32 ordinary Exclusive requests are already contending
+.\TestAndBenchmark.exe --upgrade-contention 64 32
+```
+
+The reported time is an end-to-end contention-drain measurement. It includes thread scheduling, upgrade convergence, Monitor serialization, the minimal Exclusive test region, and release. It is not the cost of a single lock instruction.
+
+---
+
+## 5. Runtime Parameters
 
 ### General Semantic-Test Parameters
 
@@ -168,7 +205,7 @@ hh:mm:ss
 
 ---
 
-## 5. Failure and Reproduction
+## 6. Failure and Reproduction
 
 Any assertion failure, thread exception, or timeout immediately terminates the current test and returns a nonzero exit code.
 
@@ -183,7 +220,7 @@ To reproduce the failure, keep the test mode and main parameters unchanged and p
 
 ---
 
-## 6. Recommended Execution Order
+## 7. Recommended Execution Order
 
 When validating a release package for the first time, use the following sequence:
 
@@ -201,7 +238,7 @@ A quick test passing only shows that the main paths did not fail immediately. Lo
 
 ---
 
-## 7. Commands Ready to Run
+## 8. Commands Ready to Run
 
 ```powershell
 # Show all command-line options
@@ -233,4 +270,10 @@ A quick test passing only shows that the main paths did not fail immediately. Lo
 
 # Single-lock high-contention diagnostics: 128 dedicated threads for 10 seconds
 .\TestAndBenchmark.exe --contention-stress 10s --threads 128
+
+# 64 Concurrent holders upgrade simultaneously, without ordinary Exclusive contenders
+.\TestAndBenchmark.exe --upgrade-contention 64 0
+
+# 64 Concurrent holders upgrade simultaneously while 32 ordinary Exclusive requests contend
+.\TestAndBenchmark.exe --upgrade-contention 64 32
 ```

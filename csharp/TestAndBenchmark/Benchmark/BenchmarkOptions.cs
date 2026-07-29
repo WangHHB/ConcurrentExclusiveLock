@@ -61,6 +61,8 @@ internal sealed class BenchmarkOptions
     public TimeSpan? EnduranceDuration { get; internal set; }
     public TimeSpan? FullSemanticStressDuration { get; internal set; }
     public TimeSpan? ContentionStressDuration { get; internal set; }
+    public int? UpgradeContentionConcurrentThreads { get; internal set; }
+    public int UpgradeContentionExclusiveThreads { get; internal set; }
 
     /// <summary>本案例实际创建的专用工作线程总数。</summary>
     public long TotalWorkerThreads => (long)LockInstances * Threads;
@@ -148,11 +150,12 @@ internal sealed class BenchmarkOptions
                             (RunFullSemantics ? 1 : 0) +
                             (FullSemanticStressDuration.HasValue ? 1 : 0) +
                             (EnduranceDuration.HasValue ? 1 : 0) +
-                            (ContentionStressDuration.HasValue ? 1 : 0);
+                            (ContentionStressDuration.HasValue ? 1 : 0) +
+                            (UpgradeContentionConcurrentThreads.HasValue ? 1 : 0);
         if (selectedModes > 1)
         {
             throw new ArgumentException(
-                "Select only one of --advanced-correctness, --advanced-perf, --pipeline-semantics, --pipeline-stress, --full-semantics, --full-semantics-stress, --endurance, or --contention-stress.");
+                "Select only one of --advanced-correctness, --advanced-perf, --pipeline-semantics, --pipeline-stress, --full-semantics, --full-semantics-stress, --endurance, --contention-stress, or --upgrade-contention.");
         }
 
         if (EnduranceDuration.HasValue && EnduranceDuration.Value <= TimeSpan.Zero)
@@ -181,6 +184,23 @@ internal sealed class BenchmarkOptions
             throw new ArgumentOutOfRangeException(
                 nameof(ContentionStressDuration),
                 "Contention stress duration must be greater than zero.");
+        }
+
+        if (UpgradeContentionConcurrentThreads.HasValue)
+        {
+            if (UpgradeContentionConcurrentThreads.Value < 1)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(UpgradeContentionConcurrentThreads),
+                    "Upgrade contention requires n >= 1 Concurrent upgrade thread.");
+            }
+
+            if (UpgradeContentionExclusiveThreads < 0)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(UpgradeContentionExclusiveThreads),
+                    "Upgrade contention requires m >= 0 ordinary Exclusive threads.");
+            }
         }
     }
 }
@@ -277,6 +297,10 @@ internal static class CommandLineParser
                 case "--contention-stress":
                     options.ContentionStressDuration = ParseDuration(NextValue(), argument);
                     break;
+                case "--upgrade-contention":
+                    options.UpgradeContentionConcurrentThreads = ParseInt(NextValue(), "--upgrade-contention n");
+                    options.UpgradeContentionExclusiveThreads = ParseInt(NextValue(), "--upgrade-contention m");
+                    break;
                 case "-h":
                 case "--help":
                     options.ShowHelp = true;
@@ -363,6 +387,8 @@ internal static class UsagePrinter
         Console.WriteLine("  TestAndBenchmark.exe --full-semantics-stress 10m --lock-instances 1 --semantic-workers 64 --semantic-operations 256");
         Console.WriteLine("  TestAndBenchmark.exe --endurance 24h");
         Console.WriteLine("  TestAndBenchmark.exe --contention-stress 10s --threads 128");
+        Console.WriteLine("  TestAndBenchmark.exe --upgrade-contention 64 0");
+        Console.WriteLine("  TestAndBenchmark.exe --upgrade-contention 64 32");
         Console.WriteLine();
         Console.WriteLine("Options:");
         Console.WriteLine($"  --lock-instances   Independent single-lock cases. Default: {BenchmarkOptions.DefaultLockInstances}");
@@ -387,6 +413,7 @@ internal static class UsagePrinter
         Console.WriteLine("  --semantic-seed         Optional random seed used by full semantic valid-path testing.");
         Console.WriteLine("  --endurance         Run automatic long-duration semantic validation. Examples: 30s, 15m, 24h, 1d.");
         Console.WriteLine("  --contention-stress Measure peak/average Contention under sustained single-lock pressure.");
+        Console.WriteLine("  --upgrade-contention n m  Hold Concurrent in n threads, establish m ordinary Exclusive contenders, then release all n threads to upgrade simultaneously. m may be 0.");
         Console.WriteLine("  -h, --help         Show this help.");
     }
 }

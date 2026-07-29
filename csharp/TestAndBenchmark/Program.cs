@@ -28,6 +28,13 @@ internal static class Program
         }
 
         BenchmarkReporter.PrintEnvironment();
+        if (options.UpgradeContentionConcurrentThreads.HasValue)
+        {
+            return UpgradeContentionRunner.Run(
+                options.UpgradeContentionConcurrentThreads.Value,
+                options.UpgradeContentionExclusiveThreads);
+        }
+
         if (options.ContentionStressDuration.HasValue)
         {
             return ContentionStressRunner.Run(
