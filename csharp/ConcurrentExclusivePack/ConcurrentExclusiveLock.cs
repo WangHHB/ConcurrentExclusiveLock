@@ -602,7 +602,7 @@ namespace IntomicLib
                         {
                             AdjustWait(ref adjustTurn);
                         }
-                        else   // Yield to TryConcurrentToExclusive.
+                        else   // Yield to ConcurrentToExclusive.
                         {
                             Interlocked.Add(ref token.Counter, -Exclusive_Add);
                             Monitor.Exit(token);
@@ -611,7 +611,7 @@ namespace IntomicLib
                         }
                     }
                 }
-                else  // Yield to TryConcurrentToExclusive.
+                else  // Yield to ConcurrentToExclusive.
                 {
                     Interlocked.Add(ref token.Counter, -Exclusive_Add);
                     Monitor.Exit(token);
