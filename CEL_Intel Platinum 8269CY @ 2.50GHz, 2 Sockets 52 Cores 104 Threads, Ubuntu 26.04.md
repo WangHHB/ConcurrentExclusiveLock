@@ -8,10 +8,8 @@
 
 | Field | Value |
 | --- | --- |
-| Original `MACHINE` value | `Intel Platinum 8269CY @ 2.50GHz, 2 Way 104 Core, Debian 13` |
+| Original `MACHINE` value | `Intel Platinum 8269CY @ 2.50GHz, 2 Way 104 Core, Ubuntu 26.04` |
 | Original `OUT` value | `/root/csharp/CEL_Intel Platinum 8269CY @ 2.50GHz, 2 Sockets 52 Cores 104 Threads, Ubuntu 26.04.jsonl` |
-
-> **Note:** The original `MACHINE` header still contains an earlier `Debian 13` label, while the runtime records report `Ubuntu 26.04 LTS`. Both source values are retained here rather than silently reconciled.
 
 ## Environment
 
