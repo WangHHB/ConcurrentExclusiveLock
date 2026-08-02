@@ -5,7 +5,7 @@ using IntomicLib;
 namespace LockBenchmark;
 
 /// <summary>
-/// 验证 State 只作为诊断快照暴露基本状态，不把它当成强一致计数器使用。
+/// Verifies that State is treated only as a diagnostic snapshot, never as a strongly consistent synchronization counter.
 /// </summary>
 internal sealed class LockStateSnapshotCorrectnessCase : IAdvancedLockCorrectnessCase
 {
@@ -47,7 +47,7 @@ internal sealed class LockStateSnapshotCorrectnessCase : IAdvancedLockCorrectnes
 }
 
 /// <summary>
-/// 验证 Contention 在压力下可观察到非零，并在压力释放后回到 0。
+/// Verifies that Contention becomes observable under pressure and returns to zero after pressure is removed.
 /// </summary>
 internal sealed class LockContentionSnapshotCorrectnessCase : IAdvancedLockCorrectnessCase
 {

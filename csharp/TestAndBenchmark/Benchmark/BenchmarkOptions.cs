@@ -1,9 +1,7 @@
-using System;
 using System.Globalization;
 
 namespace LockBenchmark;
 
-/// <summary>可由命令行单独加载的业务工作集类型。</summary>
 internal enum WorkloadKind
 {
     Cpu,
@@ -13,295 +11,340 @@ internal enum WorkloadKind
     Payload
 }
 
+internal enum ExecutionMode
+{
+    Throughput,
+    AcquisitionLatency,
+    ExclusiveProgress,
+    PipelinePerformance,
+    UpgradeContention,
+    Correctness,
+    PipelineStress,
+    Endurance,
+    ContentionDiagnostic
+}
+
 /// <summary>
-/// 标准锁测试的配置模型。
-/// 同文件中的解析器和帮助输出共同构成完整的命令行配置入口。
+/// Complete command-line configuration. Every workload/topology value is literal:
+/// runtime hardware discovery is used only for reporting and CPU normalization.
 /// </summary>
+/// <remarks>
+/// Porting contract: keep one canonical parameter name for each concept and require one explicit mode.
+/// Do not add aliases, implicit default modes, compatibility translation, or mode-specific silent ignores.
+/// Explicitly supplied parameters that a mode cannot use must be rejected. Do not clamp, scale, cap,
+/// or replace user values based on CPU count, memory, NUMA, runtime, or elapsed time.
+/// </remarks>
 internal sealed class BenchmarkOptions
 {
     internal const int DefaultThreads = 32;
     internal const int DefaultLockInstances = 1;
-    internal const int DefaultOperationsPerThread = 10000;
-    internal const int DefaultReadSteps = 32;
-    internal const int DefaultWriteSteps = 32;
+    internal const int DefaultOperationsPerThread = 10_000;
+    internal const int DefaultConcurrentWorkSteps = 32;
+    internal const int DefaultExclusiveWorkSteps = 32;
     internal const int DefaultMemoryWorkingSetMb = 64;
-    internal const int DefaultDictionaryEntries = 1280;
+    internal const int DefaultDictionaryEntries = 1_280;
+    internal const int DefaultPayloadFrames = 1_024;
+    internal const int DefaultLatencySampleEvery = 1;
+    internal const int DefaultPrepareSteps = 64;
+    internal const int DefaultCommitSteps = 8;
+    internal const int DefaultPostSteps = 64;
     internal const int DefaultAdvancedOperationsPerLock = 1;
     internal const int DefaultSemanticWorkersPerLock = 4;
     internal const int DefaultSemanticOperationsPerLock = 256;
+    internal const int DefaultPipelineExceptionPermille = 10;
 
-    /// <summary>本案例同时运行的独立“锁 + Work”实例数量。</summary>
+    public ExecutionMode Mode { get; internal set; }
+    public bool ShowHelp { get; internal set; }
+
     public int LockInstances { get; internal set; } = DefaultLockInstances;
-
-    /// <summary>每个锁实例参与竞争的专用工作线程数量。</summary>
     public int Threads { get; internal set; } = DefaultThreads;
-
-    /// <summary>每个线程获取锁并执行一次 Tick 的次数。</summary>
     public int OperationsPerThread { get; internal set; } = DefaultOperationsPerThread;
-
-    /// <summary>每次获取读权限后，TickRead 在锁内执行的业务步骤数。</summary>
-    public int ReadSteps { get; internal set; } = DefaultReadSteps;
-
-    /// <summary>每次获取写权限后，TickWrite 在锁内执行的业务步骤数。</summary>
-    public int WriteSteps { get; internal set; } = DefaultWriteSteps;
+    public int ConcurrentWorkSteps { get; internal set; } = DefaultConcurrentWorkSteps;
+    public int ExclusiveWorkSteps { get; internal set; } = DefaultExclusiveWorkSteps;
     public int MemoryWorkingSetMb { get; internal set; } = DefaultMemoryWorkingSetMb;
     public int DictionaryEntries { get; internal set; } = DefaultDictionaryEntries;
+    public int PayloadFrames { get; internal set; } = DefaultPayloadFrames;
     public WorkloadKind Workload { get; internal set; } = WorkloadKind.Memory;
-    public bool ShowHelp { get; internal set; }
-    public bool RunAdvancedCorrectness { get; internal set; }
-    public bool RunAdvancedPerformance { get; internal set; }
-    public bool RunPipelineSemantics { get; internal set; }
-    public TimeSpan? PipelineStressDuration { get; internal set; }
-    public int AdvancedOperationsPerLock { get; internal set; } = DefaultAdvancedOperationsPerLock;
-    public int? AdvancedSeed { get; internal set; }
-    public bool RunFullSemantics { get; internal set; }
+    public int? ConcurrentPermille { get; internal set; }
+    public int LatencySampleEvery { get; internal set; } = DefaultLatencySampleEvery;
+
+    public int PrepareSteps { get; internal set; } = DefaultPrepareSteps;
+    public int CommitSteps { get; internal set; } = DefaultCommitSteps;
+    public int PostSteps { get; internal set; } = DefaultPostSteps;
+
     public int SemanticWorkersPerLock { get; internal set; } = DefaultSemanticWorkersPerLock;
     public int SemanticOperationsPerLock { get; internal set; } = DefaultSemanticOperationsPerLock;
     public int? SemanticSeed { get; internal set; }
+    public int PipelineExceptionPermille { get; internal set; } = DefaultPipelineExceptionPermille;
+    public int AdvancedOperationsPerLock { get; internal set; } = DefaultAdvancedOperationsPerLock;
+    public int? AdvancedSeed { get; internal set; }
+
+    public TimeSpan? PipelineStressDuration { get; internal set; }
     public TimeSpan? EnduranceDuration { get; internal set; }
-    public TimeSpan? FullSemanticStressDuration { get; internal set; }
-    public TimeSpan? ContentionStressDuration { get; internal set; }
+    public TimeSpan? ContentionDiagnosticDuration { get; internal set; }
     public int? UpgradeContentionConcurrentThreads { get; internal set; }
     public int UpgradeContentionExclusiveThreads { get; internal set; }
 
-    /// <summary>本案例实际创建的专用工作线程总数。</summary>
-    public long TotalWorkerThreads => (long)LockInstances * Threads;
+    public string? OutputPath { get; internal set; }
+    public string MachineId { get; internal set; } = "unlabeled";
+    public string ExperimentId { get; internal set; } = "manual";
 
-    /// <summary>
-    /// 创建只用于 JIT 和运行时预热的缩小配置。
-    /// Work 类型及数据规模保持一致，线程数、操作数和单次步骤数会缩小。
-    /// </summary>
-    public static BenchmarkOptions CreateWarmup(BenchmarkOptions source)
-    {
-        return new BenchmarkOptions
-        {
-            // 预热只覆盖代码路径，不复制 N 份并发案例。
-            LockInstances = 1,
-            Threads = Math.Min(4, Math.Max(1, Environment.ProcessorCount)),
-            OperationsPerThread = 2_000,
-            ReadSteps = Math.Min(8, source.ReadSteps),
-            WriteSteps = Math.Min(8, source.WriteSteps),
-            MemoryWorkingSetMb = source.MemoryWorkingSetMb,
-            DictionaryEntries = source.DictionaryEntries,
-            Workload = source.Workload
-        };
-    }
+    public long TotalWorkerThreads => checked((long)LockInstances * Threads);
 
-    /// <summary>在线程或业务对象创建前验证所有参数。</summary>
     public void Validate()
     {
-        if (Threads < 1) throw new ArgumentOutOfRangeException(nameof(Threads));
-        if (LockInstances < 1) throw new ArgumentOutOfRangeException(nameof(LockInstances));
-        if (TotalWorkerThreads > int.MaxValue)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(LockInstances),
-                "lock-instances × threads exceeds the runtime thread-array limit.");
-        }
-        if (OperationsPerThread < 1) throw new ArgumentOutOfRangeException(nameof(OperationsPerThread));
-        if (ReadSteps < 0) throw new ArgumentOutOfRangeException(nameof(ReadSteps));
-        if (WriteSteps < 0) throw new ArgumentOutOfRangeException(nameof(WriteSteps));
-        if (MemoryWorkingSetMb < 1)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(MemoryWorkingSetMb),
-                "Memory working set must be greater than 0 MiB.");
-        }
-
-        if (DictionaryEntries < 1)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(DictionaryEntries),
-                "Dictionary size must be greater than 0.");
-        }
-
-        if (AdvancedOperationsPerLock < 1)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(AdvancedOperationsPerLock),
-                "Advanced operations per lock must be greater than 0.");
-        }
-
+        RequirePositive(Threads, nameof(Threads));
+        RequirePositive(LockInstances, nameof(LockInstances));
+        RequirePositive(OperationsPerThread, nameof(OperationsPerThread));
+        RequireNonNegative(ConcurrentWorkSteps, nameof(ConcurrentWorkSteps));
+        RequireNonNegative(ExclusiveWorkSteps, nameof(ExclusiveWorkSteps));
+        RequirePositive(MemoryWorkingSetMb, nameof(MemoryWorkingSetMb));
+        RequirePositive(DictionaryEntries, nameof(DictionaryEntries));
+        RequirePositive(PayloadFrames, nameof(PayloadFrames));
+        RequirePositive(LatencySampleEvery, nameof(LatencySampleEvery));
+        RequireNonNegative(PrepareSteps, nameof(PrepareSteps));
+        RequireNonNegative(CommitSteps, nameof(CommitSteps));
+        RequireNonNegative(PostSteps, nameof(PostSteps));
+        RequirePositive(AdvancedOperationsPerLock, nameof(AdvancedOperationsPerLock));
         if (SemanticWorkersPerLock < 2)
         {
-            throw new ArgumentOutOfRangeException(
-                nameof(SemanticWorkersPerLock),
-                "Full semantic testing requires at least 2 workers per lock.");
+            throw new ArgumentOutOfRangeException(nameof(SemanticWorkersPerLock), "semantic-workers must be at least 2.");
         }
-
-        if (SemanticOperationsPerLock < 1)
+        RequirePositive(SemanticOperationsPerLock, nameof(SemanticOperationsPerLock));
+        if (PipelineExceptionPermille is < 0 or > 1_000)
         {
-            throw new ArgumentOutOfRangeException(
-                nameof(SemanticOperationsPerLock),
-                "Semantic operations per lock must be greater than 0.");
+            throw new ArgumentOutOfRangeException(nameof(PipelineExceptionPermille), "pipeline-exception-permille must be in [0, 1000].");
         }
 
+        if (TotalWorkerThreads > int.MaxValue)
+        {
+            throw new ArgumentOutOfRangeException(nameof(LockInstances), "lock-instances × threads exceeds the runtime array limit.");
+        }
+        if (Mode == ExecutionMode.ExclusiveProgress && (long)LockInstances * (Threads + 1L) > int.MaxValue)
+        {
+            throw new ArgumentOutOfRangeException(nameof(LockInstances), "exclusive-progress thread count exceeds the runtime array limit.");
+        }
         if ((long)LockInstances * SemanticWorkersPerLock > int.MaxValue)
         {
-            throw new ArgumentOutOfRangeException(
-                nameof(SemanticWorkersPerLock),
-                "lock-instances × semantic-workers exceeds the runtime thread-array limit.");
+            throw new ArgumentOutOfRangeException(nameof(SemanticWorkersPerLock), "lock-instances × semantic-workers exceeds the runtime array limit.");
+        }
+        if (ConcurrentPermille is < 0 or > 1_000)
+        {
+            throw new ArgumentOutOfRangeException(nameof(ConcurrentPermille), "concurrent-permille must be in [0, 1000].");
+        }
+        if (string.IsNullOrWhiteSpace(MachineId))
+        {
+            throw new ArgumentException("machine-id must not be empty.", nameof(MachineId));
+        }
+        if (string.IsNullOrWhiteSpace(ExperimentId))
+        {
+            throw new ArgumentException("experiment-id must not be empty.", nameof(ExperimentId));
         }
 
-        int selectedModes = (RunAdvancedCorrectness ? 1 : 0) +
-                            (RunAdvancedPerformance ? 1 : 0) +
-                            (RunPipelineSemantics ? 1 : 0) +
-                            (PipelineStressDuration.HasValue ? 1 : 0) +
-                            (RunFullSemantics ? 1 : 0) +
-                            (FullSemanticStressDuration.HasValue ? 1 : 0) +
-                            (EnduranceDuration.HasValue ? 1 : 0) +
-                            (ContentionStressDuration.HasValue ? 1 : 0) +
-                            (UpgradeContentionConcurrentThreads.HasValue ? 1 : 0);
-        if (selectedModes > 1)
+        if (Mode == ExecutionMode.UpgradeContention)
         {
-            throw new ArgumentException(
-                "Select only one of --advanced-correctness, --advanced-perf, --pipeline-semantics, --pipeline-stress, --full-semantics, --full-semantics-stress, --endurance, --contention-stress, or --upgrade-contention.");
-        }
-
-        if (EnduranceDuration.HasValue && EnduranceDuration.Value <= TimeSpan.Zero)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(EnduranceDuration),
-                "Endurance duration must be greater than zero.");
-        }
-
-        if (FullSemanticStressDuration.HasValue && FullSemanticStressDuration.Value <= TimeSpan.Zero)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(FullSemanticStressDuration),
-                "Full semantic stress duration must be greater than zero.");
-        }
-
-        if (PipelineStressDuration.HasValue && PipelineStressDuration.Value <= TimeSpan.Zero)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(PipelineStressDuration),
-                "Pipeline stress duration must be greater than zero.");
-        }
-
-        if (ContentionStressDuration.HasValue && ContentionStressDuration.Value <= TimeSpan.Zero)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(ContentionStressDuration),
-                "Contention stress duration must be greater than zero.");
-        }
-
-        if (UpgradeContentionConcurrentThreads.HasValue)
-        {
-            if (UpgradeContentionConcurrentThreads.Value < 1)
+            if (UpgradeContentionConcurrentThreads is null or < 1)
             {
-                throw new ArgumentOutOfRangeException(
-                    nameof(UpgradeContentionConcurrentThreads),
-                    "Upgrade contention requires n >= 1 Concurrent upgrade thread.");
+                throw new ArgumentOutOfRangeException(nameof(UpgradeContentionConcurrentThreads), "upgrade-contention requires n >= 1.");
             }
+            RequireNonNegative(UpgradeContentionExclusiveThreads, nameof(UpgradeContentionExclusiveThreads));
+        }
 
-            if (UpgradeContentionExclusiveThreads < 0)
-            {
-                throw new ArgumentOutOfRangeException(
-                    nameof(UpgradeContentionExclusiveThreads),
-                    "Upgrade contention requires m >= 0 ordinary Exclusive threads.");
-            }
+        ValidateDuration(PipelineStressDuration, nameof(PipelineStressDuration));
+        ValidateDuration(EnduranceDuration, nameof(EnduranceDuration));
+        ValidateDuration(ContentionDiagnosticDuration, nameof(ContentionDiagnosticDuration));
+
+    }
+
+    private static void RequirePositive(int value, string name)
+    {
+        if (value < 1) throw new ArgumentOutOfRangeException(name, $"{name} must be greater than 0.");
+    }
+
+    private static void RequireNonNegative(int value, string name)
+    {
+        if (value < 0) throw new ArgumentOutOfRangeException(name, $"{name} must not be negative.");
+    }
+
+    private static void ValidateDuration(TimeSpan? value, string name)
+    {
+        if (value.HasValue && value.Value <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(name, $"{name} must be greater than zero.");
         }
     }
 }
 
-/// <summary>将命令行文本转换为 <see cref="BenchmarkOptions"/>。</summary>
 internal static class CommandLineParser
 {
     public static BenchmarkOptions Parse(string[] args)
     {
-        BenchmarkOptions options = new BenchmarkOptions();
-        int? commonSteps = null;
-        int? readSteps = null;
-        int? writeSteps = null;
+        BenchmarkOptions options = new();
+        int? commonWork = null;
+        ExecutionMode? explicitlySelectedMode = null;
+        HashSet<string> suppliedOptions = new(StringComparer.Ordinal);
+
+        void Mark(string canonicalArgument)
+        {
+            if (!suppliedOptions.Add(canonicalArgument))
+            {
+                throw new ArgumentException($"Option specified more than once: {canonicalArgument}.");
+            }
+        }
+
+        void SelectMode(ExecutionMode mode, string argument)
+        {
+            if (explicitlySelectedMode.HasValue)
+            {
+                throw new ArgumentException($"Multiple execution modes selected: {explicitlySelectedMode.Value} and {argument}.");
+            }
+            explicitlySelectedMode = mode;
+            options.Mode = mode;
+        }
 
         for (int i = 0; i < args.Length; i++)
         {
             string argument = args[i];
-
             string NextValue()
             {
-                if (i + 1 >= args.Length)
-                {
-                    throw new ArgumentException($"Missing value for {argument}");
-                }
-
+                if (i + 1 >= args.Length) throw new ArgumentException($"Missing value for {argument}.");
                 return args[++i];
             }
 
             switch (argument)
             {
-                case "--threads":
-                    options.Threads = ParseInt(NextValue(), argument);
+                case "--throughput":
+                    SelectMode(ExecutionMode.Throughput, argument);
                     break;
-                case "--lock-instances":
-                    options.LockInstances = ParseInt(NextValue(), argument);
+                case "--latency":
+                    SelectMode(ExecutionMode.AcquisitionLatency, argument);
                     break;
-                case "--operations":
-                    options.OperationsPerThread = ParseInt(NextValue(), argument);
+                case "--exclusive-progress":
+                    SelectMode(ExecutionMode.ExclusiveProgress, argument);
                     break;
-                case "--work":
-                    commonSteps = ParseInt(NextValue(), argument);
-                    break;
-                case "--read-work":
-                    readSteps = ParseInt(NextValue(), argument);
-                    break;
-                case "--write-work":
-                    writeSteps = ParseInt(NextValue(), argument);
-                    break;
-                case "--workload":
-                    options.Workload = ParseWorkload(NextValue());
-                    break;
-                case "--memory-mb":
-                    options.MemoryWorkingSetMb = ParseInt(NextValue(), argument);
-                    break;
-                case "--dictionary-size":
-                    options.DictionaryEntries = ParseInt(NextValue(), argument);
-                    break;
-                case "--advanced-correctness":
-                    options.RunAdvancedCorrectness = true;
-                    break;
-                case "--advanced-perf":
-                    options.RunAdvancedPerformance = true;
-                    break;
-                case "--pipeline-semantics":
-                    options.RunPipelineSemantics = true;
-                    break;
-                case "--pipeline-stress":
-                    options.PipelineStressDuration = ParseDuration(NextValue(), argument);
-                    break;
-                case "--advanced-operations":
-                    options.AdvancedOperationsPerLock = ParseInt(NextValue(), argument);
-                    break;
-                case "--advanced-seed":
-                    options.AdvancedSeed = ParseInt(NextValue(), argument);
-                    break;
-                case "--full-semantics":
-                    options.RunFullSemantics = true;
-                    break;
-                case "--full-semantics-stress":
-                    options.FullSemanticStressDuration = ParseDuration(NextValue(), argument);
-                    break;
-                case "--semantic-workers":
-                    options.SemanticWorkersPerLock = ParseInt(NextValue(), argument);
-                    break;
-                case "--semantic-operations":
-                    options.SemanticOperationsPerLock = ParseInt(NextValue(), argument);
-                    break;
-                case "--semantic-seed":
-                    options.SemanticSeed = ParseInt(NextValue(), argument);
-                    break;
-                case "--endurance":
-                    options.EnduranceDuration = ParseDuration(NextValue(), argument);
-                    break;
-                case "--contention-stress":
-                    options.ContentionStressDuration = ParseDuration(NextValue(), argument);
+                case "--pipeline-perf":
+                    SelectMode(ExecutionMode.PipelinePerformance, argument);
                     break;
                 case "--upgrade-contention":
+                    SelectMode(ExecutionMode.UpgradeContention, argument);
                     options.UpgradeContentionConcurrentThreads = ParseInt(NextValue(), "--upgrade-contention n");
                     options.UpgradeContentionExclusiveThreads = ParseInt(NextValue(), "--upgrade-contention m");
                     break;
-                case "-h":
+                case "--correctness":
+                    SelectMode(ExecutionMode.Correctness, argument);
+                    break;
+                case "--pipeline-stress":
+                    SelectMode(ExecutionMode.PipelineStress, argument);
+                    options.PipelineStressDuration = ParseDuration(NextValue(), argument);
+                    break;
+                case "--endurance":
+                    SelectMode(ExecutionMode.Endurance, argument);
+                    options.EnduranceDuration = ParseDuration(NextValue(), argument);
+                    break;
+                case "--contention-diagnostic":
+                    SelectMode(ExecutionMode.ContentionDiagnostic, argument);
+                    options.ContentionDiagnosticDuration = ParseDuration(NextValue(), argument);
+                    break;
+
+                case "--threads":
+                    Mark("--threads");
+                    options.Threads = ParseInt(NextValue(), argument);
+                    break;
+                case "--lock-instances":
+                    Mark("--lock-instances");
+                    options.LockInstances = ParseInt(NextValue(), argument);
+                    break;
+                case "--operations":
+                    Mark("--operations");
+                    options.OperationsPerThread = ParseInt(NextValue(), argument);
+                    break;
+                case "--concurrent-permille":
+                    Mark("--concurrent-permille");
+                    options.ConcurrentPermille = ParseInt(NextValue(), argument);
+                    break;
+                case "--latency-sample-every":
+                    Mark("--latency-sample-every");
+                    options.LatencySampleEvery = ParseInt(NextValue(), argument);
+                    break;
+                case "--work":
+                    Mark("--work");
+                    commonWork = ParseInt(NextValue(), argument);
+                    break;
+                case "--concurrent-work":
+                    Mark("--concurrent-work");
+                    options.ConcurrentWorkSteps = ParseInt(NextValue(), argument);
+                    break;
+                case "--exclusive-work":
+                    Mark("--exclusive-work");
+                    options.ExclusiveWorkSteps = ParseInt(NextValue(), argument);
+                    break;
+                case "--workload":
+                    Mark("--workload");
+                    options.Workload = ParseWorkload(NextValue());
+                    break;
+                case "--memory-mb":
+                    Mark("--memory-mb");
+                    options.MemoryWorkingSetMb = ParseInt(NextValue(), argument);
+                    break;
+                case "--dictionary-size":
+                    Mark("--dictionary-size");
+                    options.DictionaryEntries = ParseInt(NextValue(), argument);
+                    break;
+                case "--payload-frames":
+                    Mark("--payload-frames");
+                    options.PayloadFrames = ParseInt(NextValue(), argument);
+                    break;
+
+                case "--prepare-work":
+                    Mark("--prepare-work");
+                    options.PrepareSteps = ParseInt(NextValue(), argument);
+                    break;
+                case "--commit-work":
+                    Mark("--commit-work");
+                    options.CommitSteps = ParseInt(NextValue(), argument);
+                    break;
+                case "--post-work":
+                    Mark("--post-work");
+                    options.PostSteps = ParseInt(NextValue(), argument);
+                    break;
+
+                case "--semantic-workers":
+                    Mark("--semantic-workers");
+                    options.SemanticWorkersPerLock = ParseInt(NextValue(), argument);
+                    break;
+                case "--semantic-operations":
+                    Mark("--semantic-operations");
+                    options.SemanticOperationsPerLock = ParseInt(NextValue(), argument);
+                    break;
+                case "--semantic-seed":
+                    Mark("--semantic-seed");
+                    options.SemanticSeed = ParseInt(NextValue(), argument);
+                    break;
+                case "--pipeline-exception-permille":
+                    Mark("--pipeline-exception-permille");
+                    options.PipelineExceptionPermille = ParseInt(NextValue(), argument);
+                    break;
+                case "--advanced-operations":
+                    Mark("--advanced-operations");
+                    options.AdvancedOperationsPerLock = ParseInt(NextValue(), argument);
+                    break;
+                case "--advanced-seed":
+                    Mark("--advanced-seed");
+                    options.AdvancedSeed = ParseInt(NextValue(), argument);
+                    break;
+
+                case "--output":
+                    Mark("--output");
+                    options.OutputPath = NextValue();
+                    break;
+                case "--machine-id":
+                    Mark("--machine-id");
+                    options.MachineId = NextValue();
+                    break;
+                case "--experiment-id":
+                    Mark("--experiment-id");
+                    options.ExperimentId = NextValue();
+                    break;
                 case "--help":
                     options.ShowHelp = true;
                     break;
@@ -310,10 +353,101 @@ internal static class CommandLineParser
             }
         }
 
-        options.ReadSteps = readSteps ?? commonSteps ?? options.ReadSteps;
-        options.WriteSteps = writeSteps ?? commonSteps ?? options.WriteSteps;
+        if (commonWork.HasValue)
+        {
+            if (suppliedOptions.Contains("--concurrent-work") || suppliedOptions.Contains("--exclusive-work"))
+            {
+                throw new ArgumentException("--work cannot be combined with --concurrent-work or --exclusive-work.");
+            }
+            options.ConcurrentWorkSteps = commonWork.Value;
+            options.ExclusiveWorkSteps = commonWork.Value;
+        }
+
+        if (!options.ShowHelp && !explicitlySelectedMode.HasValue)
+        {
+            throw new ArgumentException("Exactly one execution mode is required. Use --help to list the canonical modes.");
+        }
+
+        ValidateSuppliedOptions(options, suppliedOptions);
         options.Validate();
         return options;
+    }
+
+
+    private static void ValidateSuppliedOptions(BenchmarkOptions options, HashSet<string> supplied)
+    {
+        HashSet<string> allowed = new(StringComparer.Ordinal)
+        {
+            "--output", "--machine-id", "--experiment-id"
+        };
+
+        static void Add(HashSet<string> target, params string[] values)
+        {
+            foreach (string value in values) target.Add(value);
+        }
+
+        switch (options.Mode)
+        {
+            case ExecutionMode.Throughput:
+                Add(allowed, "--lock-instances", "--threads", "--operations", "--concurrent-permille",
+                    "--work", "--concurrent-work", "--exclusive-work", "--workload",
+                    "--memory-mb", "--dictionary-size", "--payload-frames");
+                break;
+            case ExecutionMode.AcquisitionLatency:
+                Add(allowed, "--lock-instances", "--threads", "--operations", "--concurrent-permille",
+                    "--latency-sample-every", "--work", "--concurrent-work", "--exclusive-work",
+                    "--workload", "--memory-mb", "--dictionary-size", "--payload-frames");
+                break;
+            case ExecutionMode.ExclusiveProgress:
+                Add(allowed, "--lock-instances", "--threads", "--operations", "--work",
+                    "--concurrent-work", "--exclusive-work", "--workload",
+                    "--memory-mb", "--dictionary-size", "--payload-frames");
+                break;
+            case ExecutionMode.PipelinePerformance:
+                Add(allowed, "--lock-instances", "--threads", "--operations",
+                    "--prepare-work", "--commit-work", "--post-work");
+                break;
+            case ExecutionMode.UpgradeContention:
+                Add(allowed, "--lock-instances");
+                break;
+            case ExecutionMode.Correctness:
+                Add(allowed, "--lock-instances", "--semantic-workers", "--semantic-operations",
+                    "--semantic-seed", "--pipeline-exception-permille",
+                    "--advanced-operations", "--advanced-seed");
+                break;
+            case ExecutionMode.PipelineStress:
+                Add(allowed, "--lock-instances", "--semantic-workers", "--semantic-operations",
+                    "--semantic-seed", "--pipeline-exception-permille");
+                break;
+            case ExecutionMode.Endurance:
+                Add(allowed, "--lock-instances", "--semantic-workers", "--semantic-operations", "--semantic-seed");
+                break;
+            case ExecutionMode.ContentionDiagnostic:
+                Add(allowed, "--threads");
+                break;
+        }
+
+        string[] unused = supplied.Where(argument => !allowed.Contains(argument)).OrderBy(argument => argument).ToArray();
+        if (unused.Length != 0)
+        {
+            throw new ArgumentException($"Option(s) not used by {options.Mode}: {string.Join(", ", unused)}.");
+        }
+
+        if (options.Mode is ExecutionMode.Throughput or ExecutionMode.AcquisitionLatency or ExecutionMode.ExclusiveProgress)
+        {
+            if (supplied.Contains("--memory-mb") && options.Workload != WorkloadKind.Memory)
+            {
+                throw new ArgumentException("--memory-mb is used only with --workload memory.");
+            }
+            if (supplied.Contains("--dictionary-size") && options.Workload is not (WorkloadKind.Dictionary or WorkloadKind.Ledger))
+            {
+                throw new ArgumentException("--dictionary-size is used only with --workload dictionary or ledger.");
+            }
+            if (supplied.Contains("--payload-frames") && options.Workload != WorkloadKind.Payload)
+            {
+                throw new ArgumentException("--payload-frames is used only with --workload payload.");
+            }
+        }
     }
 
     private static int ParseInt(string value, string argument)
@@ -322,98 +456,79 @@ internal static class CommandLineParser
         {
             throw new ArgumentException($"Invalid integer for {argument}: {value}");
         }
-
         return result;
     }
 
-    private static WorkloadKind ParseWorkload(string value)
+    private static WorkloadKind ParseWorkload(string value) => value.ToLowerInvariant() switch
     {
-        return value.ToLowerInvariant() switch
-        {
-            "cpu" => WorkloadKind.Cpu,
-            "memory" => WorkloadKind.Memory,
-            "dictionary" => WorkloadKind.Dictionary,
-            "ledger" => WorkloadKind.Ledger,
-            "payload" => WorkloadKind.Payload,
-            _ => throw new ArgumentException($"Unknown workload: {value}. Select exactly one workload.")
-        };
-    }
+        "cpu" => WorkloadKind.Cpu,
+        "memory" => WorkloadKind.Memory,
+        "dictionary" => WorkloadKind.Dictionary,
+        "ledger" => WorkloadKind.Ledger,
+        "payload" => WorkloadKind.Payload,
+        _ => throw new ArgumentException($"Unknown workload: {value}.")
+    };
 
     private static TimeSpan ParseDuration(string value, string argument)
     {
-        if (TimeSpan.TryParse(value, CultureInfo.InvariantCulture, out TimeSpan timeSpan) &&
-            timeSpan > TimeSpan.Zero)
+        if (TimeSpan.TryParse(value, CultureInfo.InvariantCulture, out TimeSpan parsed) && parsed > TimeSpan.Zero)
         {
-            return timeSpan;
+            return parsed;
         }
-
-        if (value.Length >= 2 &&
-            double.TryParse(
-                value.Substring(0, value.Length - 1),
-                NumberStyles.Float,
-                CultureInfo.InvariantCulture,
-                out double amount) &&
-            amount > 0)
+        if (value.Length >= 2 && double.TryParse(value[..^1], NumberStyles.Float, CultureInfo.InvariantCulture, out double amount) && amount > 0)
         {
-            return char.ToLowerInvariant(value[value.Length - 1]) switch
+            return char.ToLowerInvariant(value[^1]) switch
             {
                 's' => TimeSpan.FromSeconds(amount),
                 'm' => TimeSpan.FromMinutes(amount),
                 'h' => TimeSpan.FromHours(amount),
                 'd' => TimeSpan.FromDays(amount),
-                _ => throw new ArgumentException(
-                    $"Invalid duration for {argument}: {value}. Use 30s, 15m, 24h, 1d, or hh:mm:ss.")
+                _ => throw new ArgumentException($"Invalid duration for {argument}: {value}.")
             };
         }
-
-        throw new ArgumentException(
-            $"Invalid duration for {argument}: {value}. Use 30s, 15m, 24h, 1d, or hh:mm:ss.");
+        throw new ArgumentException($"Invalid duration for {argument}: {value}. Use 30s, 15m, 24h, 1d, or hh:mm:ss.");
     }
 }
 
-/// <summary>集中维护命令行帮助文本。</summary>
 internal static class UsagePrinter
 {
     public static void Print()
     {
-        Console.WriteLine("Usage:");
-        Console.WriteLine("  TestAndBenchmark.exe --lock-instances 1 --threads 32 --workload memory --operations 10000 --memory-mb 64 --read-work 32 --write-work 32");
-        Console.WriteLine("  TestAndBenchmark.exe --advanced-correctness");
-        Console.WriteLine("  TestAndBenchmark.exe --advanced-perf --threads 64 --operations 100000 --work 64");
-        Console.WriteLine("  TestAndBenchmark.exe --pipeline-semantics --lock-instances 1 --semantic-workers 64 --semantic-operations 1000");
-        Console.WriteLine("  TestAndBenchmark.exe --pipeline-stress 10m --lock-instances 1 --semantic-workers 64 --semantic-operations 1000");
-        Console.WriteLine("  TestAndBenchmark.exe --advanced-correctness --lock-instances 1000 --advanced-operations 4");
-        Console.WriteLine("  TestAndBenchmark.exe --full-semantics --lock-instances 64 --semantic-workers 4 --semantic-operations 256");
-        Console.WriteLine("  TestAndBenchmark.exe --full-semantics-stress 10m --lock-instances 1 --semantic-workers 64 --semantic-operations 256");
-        Console.WriteLine("  TestAndBenchmark.exe --endurance 24h");
-        Console.WriteLine("  TestAndBenchmark.exe --contention-stress 10s --threads 128");
-        Console.WriteLine("  TestAndBenchmark.exe --upgrade-contention 64 0");
-        Console.WriteLine("  TestAndBenchmark.exe --upgrade-contention 64 32");
+        Console.WriteLine("Usage: TestAndBenchmark <mode> [options]");
+        Console.WriteLine();
+        Console.WriteLine("Performance modes:");
+        Console.WriteLine("  --throughput          Mixed Concurrent/Exclusive throughput");
+        Console.WriteLine("  --latency             Pure acquisition-wait percentiles");
+        Console.WriteLine("  --exclusive-progress  Exclusive completions during a fixed Concurrent flood");
+        Console.WriteLine("  --pipeline-perf       Concurrent -> Exclusive -> Concurrent staged operation");
+        Console.WriteLine("  --upgrade-contention n m   N simultaneous upgrades with M ordinary Exclusive contenders");
+        Console.WriteLine();
+        Console.WriteLine("Validation modes:");
+        Console.WriteLine("  --correctness         Run deterministic, full-state, and Pipeline correctness suites");
+        Console.WriteLine("  --pipeline-stress d   Run Pipeline semantic stress for duration d");
+        Console.WriteLine("  --endurance d         Run persistent-lock semantic stress for duration d");
+        Console.WriteLine("  --contention-diagnostic d  Sample CEL diagnostic Contention under pressure");
         Console.WriteLine();
         Console.WriteLine("Options:");
-        Console.WriteLine($"  --lock-instances   Independent single-lock cases. Default: {BenchmarkOptions.DefaultLockInstances}");
-        Console.WriteLine($"  --threads          Dedicated worker threads per lock instance. Default: {BenchmarkOptions.DefaultThreads}");
-        Console.WriteLine($"  --operations       Lock acquisitions and completed Works per thread. Default: {BenchmarkOptions.DefaultOperationsPerThread}");
-        Console.WriteLine("  --work             Business steps executed inside each held-lock TickRead/TickWrite.");
-        Console.WriteLine($"  --read-work        Internal steps per TickRead. Default: {BenchmarkOptions.DefaultReadSteps}");
-        Console.WriteLine($"  --write-work       Internal steps per TickWrite. Default: {BenchmarkOptions.DefaultWriteSteps}");
-        Console.WriteLine("  --workload         Select exactly one: cpu, memory, dictionary, ledger, payload. Default: memory");
-        Console.WriteLine($"  --memory-mb        Shared memory workload size in MiB. Default: {BenchmarkOptions.DefaultMemoryWorkingSetMb}");
-        Console.WriteLine($"  --dictionary-size  Entry count used by dictionary/ledger/payload. Default: {BenchmarkOptions.DefaultDictionaryEntries}");
-        Console.WriteLine("  --advanced-correctness  Run stage-3 advanced lock semantic tests only.");
-        Console.WriteLine("  --advanced-perf     Measure CEL advanced semantic costs only.");
-        Console.WriteLine("  --pipeline-semantics    Run Pipeline semantic stress tests only.");
-        Console.WriteLine("  --pipeline-stress       Run repeated Pipeline semantic tests until duration expires.");
-        Console.WriteLine($"  --advanced-operations   Base operations per lock and advanced operation kind. Default: {BenchmarkOptions.DefaultAdvancedOperationsPerLock}");
-        Console.WriteLine("  --advanced-seed         Optional random seed used by massive independent-lock operation counts.");
-        Console.WriteLine("  --full-semantics        Run stage-5 complete access and transition semantic tests only.");
-        Console.WriteLine("  --full-semantics-stress Run repeated stage-5 complete semantic tests until duration expires.");
-        Console.WriteLine($"  --semantic-workers      Dedicated randomized state-machine workers per lock. Default: {BenchmarkOptions.DefaultSemanticWorkersPerLock}");
-        Console.WriteLine($"  --semantic-operations   Random valid-path rounds per lock. Default: {BenchmarkOptions.DefaultSemanticOperationsPerLock}");
-        Console.WriteLine("  --semantic-seed         Optional random seed used by full semantic valid-path testing.");
-        Console.WriteLine("  --endurance         Run automatic long-duration semantic validation. Examples: 30s, 15m, 24h, 1d.");
-        Console.WriteLine("  --contention-stress Measure peak/average Contention under sustained single-lock pressure.");
-        Console.WriteLine("  --upgrade-contention n m  Hold Concurrent in n threads, establish m ordinary Exclusive contenders, then release all n threads to upgrade simultaneously. m may be 0.");
-        Console.WriteLine("  -h, --help         Show this help.");
+        Console.WriteLine($"  --lock-instances n        Independent lock groups active in parallel. Default: {BenchmarkOptions.DefaultLockInstances}");
+        Console.WriteLine($"  --threads n               Worker threads per lock group. Default: {BenchmarkOptions.DefaultThreads}");
+        Console.WriteLine($"  --operations n            Operations per measured worker. Default: {BenchmarkOptions.DefaultOperationsPerThread}");
+        Console.WriteLine("                              exclusive-progress: Concurrent operations per Concurrent worker");
+        Console.WriteLine("  --concurrent-permille n   One mix in [0,1000]; 995 means 99.5% Concurrent");
+        Console.WriteLine("  --work n | --concurrent-work n --exclusive-work n");
+        Console.WriteLine("  --workload cpu|memory|dictionary|ledger|payload");
+        Console.WriteLine("  --memory-mb n | --dictionary-size n | --payload-frames n");
+        Console.WriteLine("  --latency-sample-every n  Keep one sample per worker block of n operations");
+        Console.WriteLine("  --output path             Append raw JSON Lines records");
+        Console.WriteLine("  --machine-id id           Stable platform configuration label");
+        Console.WriteLine("  --experiment-id id        Stable experiment/matrix label");
+        Console.WriteLine();
+        Console.WriteLine("Pipeline options:");
+        Console.WriteLine("  --prepare-work n --commit-work n --post-work n");
+        Console.WriteLine();
+        Console.WriteLine("Correctness/stress topology options:");
+        Console.WriteLine("  --semantic-workers n --semantic-operations n --semantic-seed n");
+        Console.WriteLine($"  --pipeline-exception-permille n  Random executed Pipeline segments that throw per 1000. Default: {BenchmarkOptions.DefaultPipelineExceptionPermille}");
+        Console.WriteLine("  --advanced-operations n --advanced-seed n");
     }
 }

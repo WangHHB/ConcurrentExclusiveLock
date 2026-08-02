@@ -5,8 +5,13 @@ using System.Threading;
 namespace LockBenchmark;
 
 /// <summary>
-/// 按时间持续重复运行 Pipeline 语义随机测试；任意失败立即停止并输出可复现 seed。
+/// Repeats the complete Pipeline semantic suite for a requested duration; any failure stops
+/// immediately and reports the exact replay seed.
 /// </summary>
+/// <remarks>
+/// Each batch preserves the literal lock/worker/round topology. Only its deterministic batch seed
+/// changes. Hardware information may be reported and used for CPU normalization, never for scaling.
+/// </remarks>
 internal static class PipelineSemanticStressRunner
 {
     private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(10);
@@ -16,20 +21,19 @@ internal static class PipelineSemanticStressRunner
         int lockInstances,
         int workersPerLock,
         int operationsPerLock,
-        int? requestedSeed)
+        int? requestedSeed,
+        int pipelineExceptionPermille)
     {
-        int baseSeed = requestedSeed ?? Random.Shared.Next();
-        Random seedSource = new Random(baseSeed);
+        PortableRandomContract.Validate();
+        int baseSeed = requestedSeed ?? SeedSource.Create();
+        PortableRandom seedSource = new PortableRandom(baseSeed);
         int processorCount = Math.Max(1, Environment.ProcessorCount);
 
-        Console.WriteLine("Pipeline semantic time stress");
+        Console.WriteLine("Pipeline semantic stress");
         Console.WriteLine(
-            $"duration={FormatDuration(duration)}, max-locks={lockInstances:n0}, max-workers/lock={workersPerLock:n0}, " +
-            $"max-rounds/lock/batch={operationsPerLock:n0}, max-total-threads/batch={lockInstances * (long)workersPerLock:n0}, " +
-            $"base-seed={baseSeed}.");
-        Console.WriteLine("Every batch randomly chooses locks/workers/rounds up to those limits.");
-        Console.WriteLine("Pipeline random segments include empty business bodies to stress short lock paths.");
-        Console.WriteLine("Any failure stops immediately. Press Ctrl+C to stop after the current batch.");
+            $"duration={FormatDuration(duration)}, locks={lockInstances:n0}, workers/lock={workersPerLock:n0}, " +
+            $"rounds/lock/batch={operationsPerLock:n0}, total-threads/batch={lockInstances * (long)workersPerLock:n0}, " +
+            $"base-seed={baseSeed}, pipeline-exception-permille={pipelineExceptionPermille}.");
         Console.WriteLine();
 
         bool cancellationRequested = false;
@@ -45,23 +49,25 @@ internal static class PipelineSemanticStressRunner
         TimeSpan lastCpu = process.TotalProcessorTime;
         TimeSpan lastHeartbeat = TimeSpan.Zero;
         long completedBatches = 0;
+        long totalInjectedExceptions = 0;
 
         try
         {
-            while (elapsed.Elapsed < duration && !Volatile.Read(ref cancellationRequested))
+            do
             {
-                int batchSeed = seedSource.Next();
-                int batchLockInstances = NextInRange(seedSource, 1, lockInstances);
-                int batchWorkersPerLock = NextInRange(seedSource, 2, workersPerLock);
-                int batchOperationsPerLock = NextInRange(seedSource, 1, operationsPerLock);
+                int batchSeed = seedSource.NextSeed();
+                int batchLockInstances = lockInstances;
+                int batchWorkersPerLock = workersPerLock;
+                int batchOperationsPerLock = operationsPerLock;
 
-                IAdvancedLockCorrectnessCase testCase = new ConcurrentExclusiveLockPipelineCorrectnessCase(
+                ConcurrentExclusiveLockPipelineCorrectnessCase testCase = new ConcurrentExclusiveLockPipelineCorrectnessCase(
                     batchLockInstances,
                     batchWorkersPerLock,
                     batchOperationsPerLock,
                     batchSeed,
                     printSummary: false,
-                    randomPipelineNoProgressTimeout: TimeSpan.FromMinutes(10));
+                    randomPipelineNoProgressTimeout: TimeSpan.FromMinutes(10),
+                    randomExceptionPermille: pipelineExceptionPermille);
 
                 try
                 {
@@ -80,6 +86,7 @@ internal static class PipelineSemanticStressRunner
                 }
 
                 completedBatches++;
+                totalInjectedExceptions += testCase.RandomCaughtInjectedExceptions;
 
                 TimeSpan now = elapsed.Elapsed;
                 if (now - lastHeartbeat >= HeartbeatInterval ||
@@ -97,6 +104,7 @@ internal static class PipelineSemanticStressRunner
                         $"[OK] elapsed={FormatDuration(now)}, remaining={FormatDuration(remaining)}, " +
                         $"batches={completedBatches:n0}, last-seed={batchSeed}, " +
                         $"last-shape={batchLockInstances:n0}x{batchWorkersPerLock:n0}x{batchOperationsPerLock:n0}, " +
+                        $"last-injected={testCase.RandomCaughtInjectedExceptions:n0}, total-injected={totalInjectedExceptions:n0}, " +
                         $"cpu={cpuPercent:0.0}%, managed={ToMiB(GC.GetTotalMemory(false)):n0}MiB, " +
                         $"threads={process.Threads.Count:n0}, gc={GC.CollectionCount(0)}/{GC.CollectionCount(1)}/{GC.CollectionCount(2)}");
 
@@ -104,11 +112,12 @@ internal static class PipelineSemanticStressRunner
                     lastCpu = currentCpu;
                 }
             }
+            while (elapsed.Elapsed < duration && !Volatile.Read(ref cancellationRequested));
 
             Console.WriteLine();
             Console.WriteLine(
                 $"[PASS] pipeline semantic stress completed: elapsed={FormatDuration(elapsed.Elapsed)}, " +
-                $"batches={completedBatches:n0}, base-seed={baseSeed}.");
+                $"batches={completedBatches:n0}, injected-exceptions={totalInjectedExceptions:n0}, base-seed={baseSeed}.");
             return 0;
         }
         finally
@@ -119,17 +128,16 @@ internal static class PipelineSemanticStressRunner
 
     private static long ToMiB(long bytes) => bytes / (1024L * 1024L);
 
-    private static int NextInRange(Random random, int minimum, int maximum)
-    {
-        maximum = Math.Max(minimum, maximum);
-        return random.Next(minimum, maximum + 1);
-    }
-
     private static string FormatDuration(TimeSpan value)
     {
         if (value.TotalDays >= 1)
         {
             return $"{(int)value.TotalDays}.{value:hh\\:mm\\:ss}";
+        }
+
+        if (value.TotalMinutes < 1)
+        {
+            return $"{value.TotalSeconds:0.000}s";
         }
 
         return value.ToString(@"hh\:mm\:ss");
@@ -138,7 +146,7 @@ internal static class PipelineSemanticStressRunner
     private static string FormatException(Exception exception)
     {
         string result = $"{exception.GetType().Name}: {exception.Message}";
-        for (Exception inner = exception.InnerException; inner != null; inner = inner.InnerException)
+        for (Exception? inner = exception.InnerException; inner != null; inner = inner.InnerException)
         {
             result += $" -> {inner.GetType().Name}: {inner.Message}";
         }

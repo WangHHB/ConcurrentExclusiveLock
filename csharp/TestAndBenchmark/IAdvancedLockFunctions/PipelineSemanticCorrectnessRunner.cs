@@ -2,29 +2,29 @@ using System;
 
 namespace LockBenchmark;
 
-/// <summary>
-/// 只运行 ConcurrentExclusiveLockPipeline 的语义压力测试，避免被其他 full-semantics 用例干扰。
-/// </summary>
+/// <summary>Runs only the ConcurrentExclusiveLockPipeline semantic suite, isolated from other full-contract cases.</summary>
 internal static class PipelineSemanticCorrectnessRunner
 {
     public static int Run(
         int lockInstances,
         int workersPerLock,
         int operationsPerLock,
-        int? requestedSeed)
+        int? requestedSeed,
+        int pipelineExceptionPermille)
     {
-        int randomSeed = requestedSeed ?? Random.Shared.Next();
+        int randomSeed = requestedSeed ?? SeedSource.Create();
         IAdvancedLockCorrectnessCase testCase = new ConcurrentExclusiveLockPipelineCorrectnessCase(
             lockInstances,
             workersPerLock,
             operationsPerLock,
-            randomSeed);
+            randomSeed,
+            randomExceptionPermille: pipelineExceptionPermille);
 
-        Console.WriteLine("Pipeline semantic stress");
+        Console.WriteLine("Pipeline semantic correctness");
         Console.WriteLine(
             $"locks={lockInstances:n0}, workers/lock={workersPerLock:n0}, " +
             $"rounds/lock={operationsPerLock:n0}, total-threads={lockInstances * (long)workersPerLock:n0}, " +
-            $"seed={randomSeed}.");
+            $"seed={randomSeed}, pipeline-exception-permille={pipelineExceptionPermille}.");
         Console.WriteLine();
 
         try

@@ -13,7 +13,7 @@
 
 据目前公开可查的实现，CEL 是唯一能够在不区分特殊读写模式、无需提前声明升级意图、也无需预先申请升级权限的情况下，直接完成原地升级与原地降级的读写同步实现；其升降级路径设计简洁而巧妙，以极少的状态转换完成了连续、对称且高效的权限切换。
 
-所有语言版本均经过性能基准测试和长期压力测试。无论单锁高竞争还是多锁并行运行，CEL 在读多写少、写入及时性要求高以及频繁升降级等优势场景中，均能明显领先对应平台的系统原生锁；在写密集等非优势场景中，性能通常仍与原生锁保持接近，额外开销较小。**
+所有语言版本均经过性能基准测试和长期压力测试。C# 参考实现还完成了覆盖单核、SMT 开关、4 vCPU 虚拟机以及双路 52 核 / 104 线程 Windows 与 Linux 环境的统一正式矩阵。结果显示：在存在真实 Concurrent 并行、Exclusive 及时性或频繁权限收敛的场景中，CEL 能稳定领先传统实现；在写密集和纯 Exclusive 等非优势场景中，通常仍保持互斥锁级别的性能，没有出现结构性退化。**
 
 
 ## 语言实现
@@ -723,275 +723,268 @@ ConcurrentExclusiveLock 不试图成为适用于所有问题的通用锁，也�
 
 ## 测试项目
 
-仓库中的测试项目用于验证核心同步协议在不同竞争条件和权限转换路径下的行为，主要包括：
+仓库中的测试项目用于验证核心同步协议在不同竞争条件、权限转换路径和硬件拓扑下的行为，主要包括：
 
-- Concurrent / Exclusive 基础获取与释放测试；
-- 抢占式 Exclusive 竞争测试；
-- Concurrent → Exclusive 升级测试；
-- Exclusive → Concurrent 降级测试；
+- Concurrent / Exclusive 基础获取、释放与状态一致性测试；
+- 抢占式 Exclusive 与固定 Concurrent 洪流下的推进测试；
+- Concurrent → Exclusive 原地升级与 Exclusive → Concurrent 原地降级测试；
+- 普通 Exclusive 与批量升级链的竞争顺序测试；
 - ContextID / EpochID 相关协议测试；
-- Pipeline 各 Segment 组合与状态转换测试；
-- 随机调用压力测试；
-- BenchmarkDotNet 性能测试。
+- Pipeline 各 Segment 组合、异常释放与随机语义测试；
+- 单锁 / 多锁吞吐与纯权限获取延迟测试；
+- Pipeline converge、Core handoff、RWLS handoff 与串行基线的阶段化性能对比；
+- 单核、SMT 开关、虚拟机、Windows / Linux 和双路 NUMA 的统一跨机器矩阵；
+- 长时间随机调用压力测试与 BenchmarkDotNet 性能测试。
+
+所有命令行拓扑和工作量参数均按字面执行，测试程序只记录硬件与运行时信息，不会根据检测到的核心数自动改变线程、锁实例或操作量。
 
 **测试项目由 AI 编写。**
 
 测试代码的作用是辅助验证当前实现、扩大路径覆盖范围并提供性能观察数据；核心同步协议、API 设计与语义定义以 C# / .NET 主项目实现为准。
 
+
 ## 性能测试
 
-### 测试环境
+当前性能章节使用统一的跨机器正式矩阵，替代此前只基于单台 Windows 11 工作机的历史快照。
 
-- **操作系统**：Windows 11
-- **CPU**：AMD Ryzen 7 5700X，8 核 16 线程
-- **SMT**：开启
-- **CPU 频率**：全核固定 4.5 GHz
-- **运行时**：.NET 8.0.22
-- **GC**：测试期间未发生 GC
-- **工作线程**：使用独立 `Thread`，通过同一个启动门同时开始
-- **工作负载**：共享内存随机访问
-- **对比实现**：
-  - `lock`
-  - `ReaderWriterLockSlim`
-  - `ConcurrentExclusiveLock`
-  - `ConcurrentExclusiveLock` 的纯 Exclusive 用法
+正式矩阵同时验证：
 
-测试结果仅代表上述硬件、运行时、工作负载和测试参数下的观察结果，不构成对其他运行环境的绝对性能保证。
+- 语义正确性；
+- 混合 Concurrent / Exclusive 吞吐；
+- 纯权限获取延迟及尾延迟；
+- 固定 Concurrent 工作量下的 Exclusive 推进能力；
+- `Concurrent → Exclusive → Concurrent` 多阶段流程；
+- 大规模原地升级与普通 Exclusive 的竞争顺序。
 
-`avg write ns` 表示测试程序统计的平均写操作延迟。当前结果展示的是平均值，尚未包含 P95、P99、P99.9 或最大延迟，因此不应将其解释为尾延迟保证。
+完整命令、指标定义、输出字段和历史快照见 [C# 测试与基准指南](./csharp/TestAndBenchmark/README.md)。
 
-### 测试结论
+### 测试矩阵
 
-#### 1. 单个热点锁最能展示实例内 Concurrent 并行能力
+| 环境 | 操作系统 / 运行时 | 可见处理器 | 主要用途 |
+|---|---|---:|---|
+| AMD Ryzen 7 5700X，BIOS 仅启用 1 个核心 | Windows 11 / .NET 8.0.22 | 1 | 单核退化与固定开销基线 |
+| AMD Ryzen 7 5700X，SMT 关闭，固定 4.5 GHz | Windows 11 / .NET 8.0.22 | 8 | 物理核心竞争 |
+| AMD Ryzen 7 5700X，SMT 开启，固定 4.5 GHz | Windows 11 / .NET 8.0.22 | 16 | 主工作机参考结果 |
+| AMD EPYC 9V74 云虚拟机 | Debian 13 / .NET 8.0.29 | 4 vCPU | 超额订阅和 Linux 虚拟化 |
+| Intel Platinum 8269CY，2 路 52 核 104 线程 | Ubuntu 26.04 / .NET 8.0.29 | 104 | 双路 NUMA / Linux |
+| Intel Platinum 8269CY，2 路 52 核 104 线程 | Windows Server 2025 / .NET 8.0.29 | 104 | 同硬件跨操作系统对照 |
 
-在单锁、64 个竞争线程的测试中，普通 `lock` 只能串行执行临界区，而 CEL 可以让 Concurrent 操作同时执行。
+每个环境均输出一份包含 **94 条记录、14 个实验**的 JSONL。所有正式矩阵的 correctness 模式均以 `exitCode = 0` 完成。
 
-在当前内存工作负载下，CEL 相对 `lock` 的吞吐表现为：
+### 统一参数与测量边界
 
-| Concurrent / Exclusive | `lock` works/s | CEL works/s | CEL / `lock` |
-|---:|---:|---:|---:|
-| 100 / 0 | 657,517 | 5,928,072 | **9.02×** |
-| 99.5 / 0.5 | 728,260 | 4,842,249 | **6.65×** |
-| 90 / 10 | 712,098 | 2,109,201 | **2.96×** |
-| 50 / 50 | 678,149 | 831,019 | **1.23×** |
-| 30 / 70 | 665,893 | 723,968 | **1.09×** |
-| 0 / 100 | 658,964 | 655,340 | **0.99×** |
+吞吐测试使用两种固定拓扑：
 
-结果呈现出自然的退化曲线：
+- `1×64`：1 个热点锁，64 个工作线程；
+- `8×8`：8 个独立锁，每锁 8 个工作线程。
 
-- Concurrent 比例较高时，CEL 可以显著利用实例内并行；
-- Exclusive 比例升高后，并发窗口逐渐缩小；
-- 100% Exclusive 时，CEL 基本退化到普通互斥锁的吞吐水平；
-- 没有 Concurrent 工作可以并行时，CEL 不会凭空产生吞吐优势。
+两种拓扑均执行总计 6,400,000 次操作，使用每锁 8 MiB 共享内存、64 个 Concurrent 工作步骤和 64 个 Exclusive 工作步骤。命令行中的线程数、锁实例数、工作量和操作次数均按字面执行，不会根据机器核心数自动缩放。
 
-CEL 并不适合临界区内几乎没有实际工作的极端短路径。普通 Concurrent 获取和释放仍然需要共享原子状态更新；当业务工作量小于并发协调成本时，直接串行执行可能更高效。
+`throughput` 中的 `averageExclusiveOperationNs` 是一次完整 Exclusive 操作的计时，包括获取、受保护工作、释放及计时开销；它不是纯获取延迟。
 
-#### 2. 多锁场景会自然摊薄相对吞吐倍率
+`latency` 模式专门测量权限获取时间。每次获取都会被计时，`--latency-sample-every 10` 仅控制确定性样本保留；样本选择与 Concurrent / Exclusive 权限选择使用独立随机状态，并在权限释放后完成，不改变被测竞争过程。
 
-在 8 个锁实例、每个实例 8 个线程的测试中，普通 `lock` 本身也可以跨锁实例并行执行：
+以下结果均为对应环境的一次正式矩阵运行，用于展示可重复的性能形态，不构成对所有硬件和负载的绝对保证。跨硬件时应比较趋势和相对倍率，而不是直接比较绝对吞吐。
+
+### 1. 5700X SMT 开启：单个热点锁
+
+`1×64` 最直接地展示单个锁实例内部的 Concurrent 并行能力。
+
+| Concurrent / Exclusive | `lock` works/s | `ReaderWriterLockSlim` works/s | CEL works/s | CEL / `lock` | CEL / RWLS |
+|---:|---:|---:|---:|---:|---:|
+| 100 / 0 | 2,589,515 | 6,660,960 | **11,083,470** | **4.28×** | **1.66×** |
+| 99.5 / 0.5 | 2,682,341 | 5,094,422 | **12,337,668** | **4.60×** | **2.42×** |
+| 90 / 10 | 2,392,583 | 2,107,590 | **5,392,722** | **2.25×** | **2.56×** |
+| 50 / 50 | 1,982,155 | 1,050,757 | **2,178,160** | **1.10×** | **2.07×** |
+| 30 / 70 | 1,855,687 | 892,264 | **1,923,724** | **1.04×** | **2.16×** |
+| 0 / 100 | 1,688,922 | 1,082,263 | **1,704,085** | **1.01×** | **1.57×** |
+
+这组结果呈现出清晰的退化曲线：
+
+- Concurrent 比例较高时，CEL 同时领先普通 `lock` 和 `ReaderWriterLockSlim`；
+- 在 90/10 时，CEL 吞吐是 `lock` 的 **2.25×**、RWLS 的 **2.56×**；
+- 即使进入 50/50 和 30/70，CEL 仍保持 `lock` 级别吞吐，并约为 RWLS 的两倍；
+- 100% Exclusive 时，CEL 为 `lock` 的 **1.01×**，说明丰富的 Concurrent、抢占、升级和降级语义没有带来明显的纯串行路径税。
+
+### 2. 5700X SMT 开启：8 个独立锁
+
+`8×8` 中，普通互斥锁也能跨锁实例并行，因此 CEL 相对 `lock` 的倍率会自然缩小。
+
+| Concurrent / Exclusive | `lock` works/s | `ReaderWriterLockSlim` works/s | CEL works/s | CEL / `lock` | CEL / RWLS |
+|---:|---:|---:|---:|---:|---:|
+| 100 / 0 | 3,563,840 | 10,388,661 | **12,432,672** | **3.49×** | **1.20×** |
+| 99.5 / 0.5 | 3,642,434 | 7,004,578 | **14,775,721** | **4.06×** | **2.11×** |
+| 90 / 10 | 3,528,619 | 4,423,317 | **5,494,419** | **1.56×** | **1.24×** |
+| 50 / 50 | 3,257,390 | 3,250,963 | **3,294,069** | **1.01×** | **1.01×** |
+| 30 / 70 | 3,118,793 | 3,025,585 | **3,270,777** | **1.05×** | **1.08×** |
+| 0 / 100 | 3,076,909 | 2,752,932 | **3,048,696** | **0.99×** | **1.11×** |
+
+多锁场景说明：
+
+- CEL 的单锁优势不是依赖全局自旋或全局互斥获得的；
+- 99.5/0.5 时，CEL 仍达到 RWLS 的 **2.11×**；
+- 50/50 至 100% Exclusive 时，CEL 与 `lock` 的差异保持在约 1% 至 5% 内；
+- 多锁摊薄的是相对吞吐倍率，而不是 CEL 的单实例权限收敛能力。
+
+### 3. 跨拓扑结果：优势只在存在真实并行和竞争时展开
+
+下表用 90/10 混合负载观察 CEL 相对 RWLS 的扩展性，并用 100% Exclusive 观察 CEL 相对普通 `lock` 的串行路径成本。
+
+| 环境 | 1×64，90/10 CEL / RWLS | 8×8，90/10 CEL / RWLS | 1×64，0/100 CEL / `lock` |
+|---|---:|---:|---:|
+| 5700X 单核 | **0.99×** | **1.05×** | 0.97× |
+| 5700X SMT 关闭 | **2.34×** | **1.49×** | 1.01× |
+| 5700X SMT 开启 | **2.56×** | **1.24×** | 1.01× |
+| EPYC 4 vCPU / Debian | **12.20×** | **2.69×** | 1.04× |
+| 8269CY / Ubuntu | **9.89×** | **11.82×** | 0.99× |
+| 8269CY / Windows Server | **2.88×** | **1.76×** | 0.82× |
+
+单核配置中，CEL 与 RWLS 基本持平；没有可利用的并行资源时，CEL 不会凭空得到吞吐优势。
+
+进入真实多核、虚拟化或双路 NUMA 环境后，混合竞争中的差距开始展开：
+
+- 4 vCPU Debian 虚拟机的 `1×64` 90/10 中，CEL 为 RWLS 的 **12.20×**；
+- 双路 Ubuntu 的 `1×64` 和 `8×8` 90/10 中，CEL 分别为 RWLS 的 **9.89×** 和 **11.82×**；
+- Windows Server 2025 明显改善了 RWLS 的表现，但 CEL 在同一双路硬件上仍分别领先 **2.88×** 和 **1.76×**。
+
+在 `1×64` 100% Exclusive 中，CEL 相对 `lock` 落在 **0.82× 至 1.04×**。这说明 CEL 的优势不是以写密集场景发生结构性崩塌为代价；最弱结果出现在双路 Windows Server，而其他多核环境均与普通互斥锁接近或持平。
+
+### 4. 同一台双路机器上的 Ubuntu / Windows Server 对照
+
+双路 8269CY 的两份结果使用相同硬件、相同 .NET 运行时版本和相同测试参数，因此可以观察操作系统同步与调度路径的影响。
+
+对 12 个吞吐场景的 `Windows / Ubuntu` 比值取几何平均：
+
+| 实现 | Windows / Ubuntu 几何平均 | 最低 | 最高 |
+|---|---:|---:|---:|
+| `lock` | **1.458×** | 0.771× | 2.632× |
+| RWLS | **2.227×** | 0.699× | 6.985× |
+| **CEL** | **1.019×** | 0.637× | 1.939× |
+
+代表性绝对吞吐如下：
+
+| 场景 | Ubuntu RWLS | Ubuntu CEL | Windows RWLS | Windows CEL |
+|---|---:|---:|---:|---:|
+| 1×64，100/0 | 1.500 M/s | **7.959 M/s** | 1.233 M/s | **7.957 M/s** |
+| 1×64，90/10 | 0.203 M/s | **2.002 M/s** | 0.559 M/s | **1.613 M/s** |
+| 8×8，90/10 | 0.667 M/s | **7.882 M/s** | 4.659 M/s | **8.184 M/s** |
+| 8×8，50/50 | 0.420 M/s | **3.152 M/s** | 2.095 M/s | **3.235 M/s** |
+
+最值得注意的是：
+
+- `1×64` 纯 Concurrent 下，两套系统的 CEL 吞吐仅相差约 **0.02%**；
+- `8×8` 90/10 下，两套系统的 CEL 仅相差约 **3.8%**；
+- 同一场景中，RWLS 在 Windows 与 Ubuntu 之间相差约 **6.99×**；
+- Ubuntu 上 RWLS 从 `8×8` 100/0 的 10.560 M/s 降至 90/10 的 0.667 M/s，writer 介入后吞吐下降约 **93.7%**。
+
+这组对照不表示 CEL 在所有操作系统上都必然具有相同绝对速度，但说明其关键性能形态主要由协议自身决定；RWLS 则更容易受到操作系统等待、唤醒、调度和跨 NUMA 协调路径影响。
+
+### 5. Exclusive 获取延迟
+
+`latency` 测试使用 90/10 混合负载，表中数值是 Exclusive **纯获取时间的平均值**，不包含 Exclusive 工作和释放。
+
+| 环境 | 1×64 RWLS | 1×64 CEL | 改善 | 8×8 RWLS | 8×8 CEL | 改善 |
+|---|---:|---:|---:|---:|---:|---:|
+| 5700X SMT 关闭 | 228.0 μs | **12.4 μs** | **18.41×** | 70.4 μs | **8.1 μs** | **8.73×** |
+| 5700X SMT 开启 | 177.4 μs | **11.9 μs** | **14.97×** | 121.3 μs | **14.9 μs** | **8.12×** |
+| EPYC 4 vCPU / Debian | 342.5 μs | **18.8 μs** | **18.25×** | 173.0 μs | **39.3 μs** | **4.40×** |
+| 8269CY / Ubuntu | 160.0 μs | **33.0 μs** | **4.84×** | 151.7 μs | **7.6 μs** | **20.03×** |
+| 8269CY / Windows Server | 60.6 μs | **51.9 μs** | **1.17×** | 25.9 μs | **7.6 μs** | **3.40×** |
+
+除单核退化基线外，CEL 在所有多核环境和两种拓扑中均降低了平均 Exclusive 获取时间。
+
+部分代表性 p99：
+
+- 5700X SMT 关闭，`1×64`：RWLS 1,240.9 μs，CEL **10.0 μs**；
+- 4 vCPU Debian，`1×64`：RWLS 2,583.4 μs，CEL **3.81 μs**；
+- 双路 Ubuntu，`8×8`：RWLS 1,568.8 μs，CEL **144.0 μs**；
+- 双路 Windows Server，`8×8`：RWLS 102.1 μs，CEL **80.2 μs**。
+
+延迟分布中可能存在少量极端调度长尾，因此 p99 不能脱离 mean、p99.9 和 max 单独解释。完整分位数保存在原始 JSONL 中。
+
+### 6. 固定 Concurrent 工作量下的 Exclusive Progress
+
+`exclusive-progress` 不测“谁在更长运行时间里循环得更多”，而是在每个实现都完成固定数量 Concurrent 操作的同时，统计 Exclusive 实际完成次数。
+
+每个锁拥有一个持续申请 Exclusive 的 writer。每次 Exclusive 完成后，该 writer 必须等待同一锁至少出现一次新的 Concurrent 完成，才能再次申请 Exclusive，避免 writer 进入次数通过延长测试时间自我放大。
+
+| 环境 | 1×64：RWLS → CEL | CEL / RWLS | 8×8：RWLS → CEL | CEL / RWLS |
+|---|---:|---:|---:|---:|
+| 5700X SMT 关闭 | 39 → **23,640** | **606.15×** | 2,513 → **68,519** | **27.27×** |
+| 5700X SMT 开启 | 709 → **80,506** | **113.55×** | 1,803 → **95,370** | **52.90×** |
+| EPYC 4 vCPU / Debian | 1,524 → **51,890** | **34.05×** | 9,054 → **274,774** | **30.35×** |
+| 8269CY / Ubuntu | 14,774 → **519,254** | **35.15×** | 245,361 → **874,909** | **3.57×** |
+| 8269CY / Windows Server | 12,424 → **527,689** | **42.47×** | 181,427 → **654,287** | **3.61×** |
+
+除没有真实并行性的单核配置外，CEL 在所有多核环境中都显著提高了 Exclusive 推进次数。
+
+该模式用于观察固定 Concurrent 洪流下的推进能力，不等同于严格 FIFO 公平性证明。短时间运行中的每锁 min / max 仍会受到线程调度影响，因此首页使用总 Exclusive entries 作为主要指标。
+
+### 7. Pipeline：原地收敛与释放后重新申请
+
+Pipeline 性能测试使用固定的三阶段流程：
 
 ```text
-Lock 1 -> 1 个临界区
-Lock 2 -> 1 个临界区
-...
-Lock 8 -> 1 个临界区
+Concurrent prepare(128)
+    → Exclusive commit(16)
+    → Concurrent post(128)
 ```
 
-因此，多锁场景下 CEL 相对普通 `lock` 的吞吐倍率会自然缩小。
+`CEL Pipeline converge` 保持同一同步上下文并原地升级 / 降级；`CEL Core handoff` 和 `RWLS handoff` 则在阶段之间释放并重新申请权限。
 
-| Concurrent / Exclusive | `lock` works/s | CEL works/s | CEL / `lock` |
-|---:|---:|---:|---:|
-| 100 / 0 | 4,290,496 | 9,932,028 | **2.31×** |
-| 99.5 / 0.5 | 5,374,123 | 9,426,514 | **1.75×** |
-| 90 / 10 | 5,075,562 | 6,457,895 | **1.27×** |
-| 50 / 50 | 4,763,081 | 4,405,050 | **0.92×** |
-| 30 / 70 | 4,589,396 | 4,379,425 | **0.95×** |
-| 0 / 100 | 4,357,654 | 4,244,409 | **0.97×** |
+| 环境 | 1×64 Pipeline / Core handoff | 1×64 Pipeline / RWLS | 8×8 Pipeline / Core handoff | 8×8 Pipeline / RWLS |
+|---|---:|---:|---:|---:|
+| 5700X 单核 | 0.90× | **1.00×** | 0.86× | **0.94×** |
+| 5700X SMT 关闭 | 1.08× | **2.15×** | 1.41× | **1.51×** |
+| 5700X SMT 开启 | 1.07× | **2.54×** | 1.22× | **1.72×** |
+| EPYC 4 vCPU / Debian | 0.91× | **4.00×** | 0.76× | **1.47×** |
+| 8269CY / Ubuntu | 1.75× | **7.09×** | 1.89× | **3.48×** |
+| 8269CY / Windows Server | 1.72× | **4.41×** | 1.64× | **2.15×** |
 
-这并不表示 CEL 的单锁并发能力下降，而是普通互斥锁也获得了实例间并行。
+结果表明：
 
-多锁测试中没有观察到随着锁实例增加而产生的结构性吞吐崩塌。这说明单锁测试中的高吞吐并不是通过全局自旋、持续抢占整机资源或锁实例之间相互干扰获得的。
+- 在 5700X 和双路 8269CY 的真实多核环境中，Pipeline converge 同时领先 CEL Core handoff 和 RWLS handoff；
+- 双路 Ubuntu 的 `1×64` 中，Pipeline 为 Core handoff 的 **1.75×**、RWLS handoff 的 **7.09×**；
+- 双路 Windows Server 的 `1×64` 中，对应倍率为 **1.72×** 和 **4.41×**；
+- 单核和仅有 4 vCPU、64 工作线程的超额订阅环境中，原地保持权限上下文不一定比释放后重新调度更快，这构成了清晰的适用边界；
+- `Monitor serialized` 可以作为串行化上界对照，但它不提供阶段间 Concurrent 并行和连续权限语义，因此不是 Pipeline 的等价替代。
 
-需要注意的是，每个锁实例拥有独立的工作对象。因此，本组测试中每个实例使用 64 MiB 工作集，总工作集为 512 MiB。
+### 8. 正确性与升级竞争
 
-#### 3. 吞吐倍率被摊薄，不代表写延迟优势被摊薄
+六套正式矩阵的 correctness 模式全部成功完成。
 
-吞吐反映整台机器在一段时间内完成的工作总量，会受到锁实例数量、CPU 核心数、内存带宽和业务工作量影响。
+升级竞争测试覆盖：
 
-写延迟反映的是一个具体写请求在目标锁上等待权限收敛所需的时间，主要由该锁自身的状态转换和竞争模型决定。
+- 1 个锁，64 个升级线程，0 个普通 Exclusive；
+- 1 个锁，64 个升级线程，16 个普通 Exclusive；
+- 8 个锁，每锁 8 个升级线程，0 个普通 Exclusive；
+- 8 个锁，每锁 8 个升级线程，4 个普通 Exclusive。
 
-在单个热点锁、99.5% Concurrent 的稀疏写场景中：
+六个环境、共 24 组升级竞争结果全部满足：
 
-| 实现 | 平均写延迟 |
-|---|---:|
-| `lock` | 1,856,481 ns |
-| `ReaderWriterLockSlim` | 1,356,004 ns |
-| CEL | **16,300 ns** |
+```text
+ordinaryEnteredBeforeUpgradeDrain = 0
+```
 
-CEL 的平均写延迟约为：
-
-- 普通 `lock` 的 **1/114**；
-- `ReaderWriterLockSlim` 的 **1/83**。
-
-单锁下的完整平均写延迟对比如下：
-
-| Concurrent / Exclusive | `lock` | `ReaderWriterLockSlim` | CEL |
-|---:|---:|---:|---:|
-| 99.5 / 0.5 | 1,856.5 μs | 1,356.0 μs | **16.3 μs** |
-| 90 / 10 | 321.2 μs | 263.7 μs | **33.6 μs** |
-| 50 / 50 | 117.8 μs | 155.7 μs | **73.1 μs** |
-| 30 / 70 | 99.9 μs | 124.1 μs | **75.4 μs** |
-| 0 / 100 | 94.1 μs | 105.0 μs | **94.6 μs** |
-
-当 Concurrent 比例较高时，CEL 的抢占式 Exclusive 会阻止新的 Concurrent 继续进入，只等待已经存在的 Concurrent 自然退出。
-
-因此，写者面对的是一个已经封闭并持续缩小的等待集合，而不需要等待持续到达的新 Concurrent 流量偶然完全停止。
-
-随着 Exclusive 比例升高，CEL 的写延迟逐渐接近普通互斥锁；在 100% Exclusive 时，CEL、CEL(ExclusiveOnly) 与普通 `lock` 基本处于同一水平。
-
-#### 4. 多锁场景中，CEL 仍然保持较低的平均写延迟
-
-8 个锁实例、每锁 8 个线程时：
-
-| Concurrent / Exclusive | `lock` | `ReaderWriterLockSlim` | CEL |
-|---:|---:|---:|---:|
-| 99.5 / 0.5 | 144.9 μs | 949.1 μs | **54.9 μs** |
-| 90 / 10 | 35.1 μs | 81.2 μs | **10.6 μs** |
-| 50 / 50 | 16.2 μs | 22.6 μs | **6.0 μs** |
-| 30 / 70 | 14.5 μs | 17.3 μs | **5.1 μs** |
-| 0 / 100 | 14.2 μs | 15.0 μs | **14.6 μs** |
-
-在 90/10、50/50 和 30/70 场景中，即使几种锁的总吞吐已经逐渐接近，CEL 的平均写延迟仍明显较低。
-
-这说明：
-
-> 多锁摊薄的是 CEL 的相对吞吐倍率，而不是单次权限收敛和交接效率。
-
-单锁测试主要展示 CEL 的实例内并发上限；多锁测试验证大量独立锁实例同时运行时不会出现明显的全局退化；平均写延迟则更直接地展示抢占式 Exclusive 和权限收敛模型的效果。
+即在这些测试中，普通 Exclusive 没有插入尚未排空的升级链。该结果验证了当前实现的升级优先顺序，但不应被扩大解释为对所有操作系统调度顺序的严格 FIFO 保证。
 
 ### 完整测试结果
 
-<details>
-<summary><strong>单锁：1 个锁实例，64 个线程，64 MiB 共享内存，64 个工作步骤</strong></summary>
+首页只保留能够解释主要性能形态的表格，避免将几十组原始输出直接铺开。
 
-```text
-F:\Projects\ConcurrentExclusiveLock\csharp\TestAndBenchmark\bin\Release\net8.0>TestAndBenchmark.exe --lock-instances 1 --threads 64 --workload memory --operations 10000 --memory-mb 64 --read-work 64 --write-work 64
-Lock benchmark
-.NET=8.0.22, OS=Microsoft Windows NT 10.0.26200.0
-GC=False, CPU=16
+完整内容包括：
 
-lock-instances=1, threads/lock=64, total-threads=64, works/thread=10,000, read-steps=64, write-steps=64
-workload=memory (64 MiB shared, read-steps=64, write-steps=64)
-Workers use dedicated Thread instances and start from a common gate.
-Each lock instance owns a fresh IWork; all worker groups share one start gate.
+- 所有正式矩阵命令；
+- 各指标的精确定义；
+- JSONL 字段说明；
+- latency 的 mean / p50 / p95 / p99 / p99.9 / max；
+- Exclusive Progress 的每锁明细；
+- Pipeline 各策略的绝对吞吐；
+- 历史单机测试快照。
 
-Scenario: read/write 100/0
-  lock type                    elapsed       cpu%       works/s  works/s/lock    work/cpu%         reads        writes  avg write ns             state
-  lock                          0.973s      10.0%        657517        657517        65536       640,000             0           0.0  0000000000000000
-  ReaderWriterLockSlim          0.141s      94.5%       4553332       4553332        48188       640,000             0           0.0  0000000000000000
-  CEL                           0.108s      97.7%       5928072       5928072        60681       640,000             0           0.0  0000000000000000
-  CEL(ExclusiveOnly)            0.899s      11.3%        711688        711688        63015       640,000             0           0.0  0000000000000000
+请参阅 [C# 测试与基准指南](./csharp/TestAndBenchmark/README.md)。
 
-Scenario: read/write 99.5/0.5
-  lock type                    elapsed       cpu%       works/s  works/s/lock    work/cpu%         reads        writes  avg write ns             state
-  lock                          0.879s      11.0%        728260        728260        66198       636,838         3,162     1856481.2  8398C18E7F9AA0EB
-  ReaderWriterLockSlim          0.220s      96.6%       2904039       2904039        30062       636,838         3,162     1356004.3  8398C18E7F9AA0EB
-  CEL                           0.132s      69.5%       4842249       4842249        69719       636,838         3,162       16299.5  8398C18E7F9AA0EB
-  CEL(ExclusiveOnly)            0.901s      10.4%        710583        710583        68267       636,838         3,162     1567402.2  8398C18E7F9AA0EB
-
-Scenario: read/write 90/10
-  lock type                    elapsed       cpu%       works/s  works/s/lock    work/cpu%         reads        writes  avg write ns             state
-  lock                          0.899s      11.0%        712098        712098        64887       576,034        63,966      321241.7  4304798A1CB10952
-  ReaderWriterLockSlim          0.540s      55.7%       1186134       1186134        21278       576,034        63,966      263729.1  4304798A1CB10952
-  CEL                           0.303s      44.4%       2109201       2109201        47490       576,034        63,966       33600.9  4304798A1CB10952
-  CEL(ExclusiveOnly)            0.915s      11.0%        699329        699329        63627       576,034        63,966      288658.3  4304798A1CB10952
-
-Scenario: read/write 50/50
-  lock type                    elapsed       cpu%       works/s  works/s/lock    work/cpu%         reads        writes  avg write ns             state
-  lock                          0.944s      11.2%        678149        678149        60681       320,007       319,993      117790.0  7F3AA8C4A6F5CFA7
-  ReaderWriterLockSlim          1.413s      50.9%        452787        452787         8892       320,007       319,993      155729.2  7F3AA8C4A6F5CFA7
-  CEL                           0.770s      18.9%        831019        831019        43984       320,007       319,993       73086.6  7F3AA8C4A6F5CFA7
-  CEL(ExclusiveOnly)            0.947s      10.6%        675557        675557        63627       320,007       319,993      114950.5  7F3AA8C4A6F5CFA7
-
-Scenario: read/write 30/70
-  lock type                    elapsed       cpu%       works/s  works/s/lock    work/cpu%         reads        writes  avg write ns             state
-  lock                          0.961s      10.8%        665893        665893        61826       191,321       448,679       99941.6  984C4BC0324B2349
-  ReaderWriterLockSlim          1.578s      49.8%        405680        405680         8141       191,321       448,679      124113.9  984C4BC0324B2349
-  CEL                           0.884s      15.2%        723968        723968        47490       191,321       448,679       75431.8  984C4BC0324B2349
-  CEL(ExclusiveOnly)            0.966s      10.8%        662768        662768        61249       191,321       448,679       99725.6  984C4BC0324B2349
-
-Scenario: read/write 0/100
-  lock type                    elapsed       cpu%       works/s  works/s/lock    work/cpu%         reads        writes  avg write ns             state
-  lock                          0.971s      11.4%        658964        658964        57996             0       640,000       94123.9  9C619B979129B421
-  ReaderWriterLockSlim          1.101s      26.3%        581326        581326        22066             0       640,000      105048.3  9C619B979129B421
-  CEL                           0.977s      11.9%        655340        655340        55072             0       640,000       94603.5  9C619B979129B421
-  CEL(ExclusiveOnly)            0.971s      11.2%        659281        659281        59041             0       640,000       94419.0  9C619B979129B421
-
-sink=3007092141684130081
-```
-
-</details>
-
-<details>
-<summary><strong>多锁：8 个锁实例，每锁 8 个线程，每实例 64 MiB，32 个工作步骤</strong></summary>
-
-```text
-F:\Projects\ConcurrentExclusiveLock\csharp\TestAndBenchmark\bin\Release\net8.0>TestAndBenchmark.exe --lock-instances 8 --threads 8 --workload memory --operations 10000 --memory-mb 64 --read-work 32 --write-work 32
-Lock benchmark
-.NET=8.0.22, OS=Microsoft Windows NT 10.0.26200.0
-GC=False, CPU=16
-
-lock-instances=8, threads/lock=8, total-threads=64, works/thread=10,000, read-steps=32, write-steps=32
-workload=memory (64 MiB shared, read-steps=32, write-steps=32)
-Workers use dedicated Thread instances and start from a common gate.
-Each lock instance owns a fresh IWork; all worker groups share one start gate.
-
-Scenario: read/write 100/0
-  lock type                    elapsed       cpu%       works/s  works/s/lock    work/cpu%         reads        writes  avg write ns             state
-  lock                          0.149s      87.7%       4290496        536312        48907       640,000             0           0.0  A57B1FF0E740A896
-  ReaderWriterLockSlim          0.073s      94.1%       8810160       1101270        93623       640,000             0           0.0  A57B1FF0E740A896
-  CEL                           0.064s      92.4%       9932028       1241503       107436       640,000             0           0.0  A57B1FF0E740A896
-  CEL(ExclusiveOnly)            0.122s      86.8%       5266545        658318        60681       640,000             0           0.0  A57B1FF0E740A896
-
-Scenario: read/write 99.5/0.5
-  lock type                    elapsed       cpu%       works/s  works/s/lock    work/cpu%         reads        writes  avg write ns             state
-  lock                          0.119s      94.3%       5374123        671765        56988       636,726         3,274      144936.1  5FFADA82B8F7C3C6
-  ReaderWriterLockSlim          0.078s      97.3%       8173388       1021674        84021       636,726         3,274      949142.2  5FFADA82B8F7C3C6
-  CEL                           0.068s      86.3%       9426514       1178314       109227       636,726         3,274       54855.1  5FFADA82B8F7C3C6
-  CEL(ExclusiveOnly)            0.122s      89.7%       5250588        656324        58514       636,726         3,274       93040.6  5FFADA82B8F7C3C6
-
-Scenario: read/write 90/10
-  lock type                    elapsed       cpu%       works/s  works/s/lock    work/cpu%         reads        writes  avg write ns             state
-  lock                          0.126s      81.3%       5075562        634445        62415       575,901        64,099       35149.4  7F8372CDB19E8250
-  ReaderWriterLockSlim          0.107s      94.3%       6001664        750208        63627       575,901        64,099       81179.8  7F8372CDB19E8250
-  CEL                           0.099s      92.6%       6457895        807237        69719       575,901        64,099       10565.8  7F8372CDB19E8250
-  CEL(ExclusiveOnly)            0.128s      78.3%       4985029        623129        63627       575,901        64,099       26110.0  7F8372CDB19E8250
-
-Scenario: read/write 50/50
-  lock type                    elapsed       cpu%       works/s  works/s/lock    work/cpu%         reads        writes  avg write ns             state
-  lock                          0.134s      89.4%       4763081        595385        53281       320,069       319,931       16227.2  77DA7C15C44409F7
-  ReaderWriterLockSlim          0.135s      95.2%       4726561        590820        49648       320,069       319,931       22625.6  77DA7C15C44409F7
-  CEL                           0.145s      94.8%       4405050        550631        46479       320,069       319,931        6043.6  77DA7C15C44409F7
-  CEL(ExclusiveOnly)            0.136s      86.5%       4721501        590188        54613       320,069       319,931       14954.3  77DA7C15C44409F7
-
-Scenario: read/write 30/70
-  lock type                    elapsed       cpu%       works/s  works/s/lock    work/cpu%         reads        writes  avg write ns             state
-  lock                          0.139s      84.7%       4589396        573675        54162       191,782       448,218       14530.9  E4C312562E36CC29
-  ReaderWriterLockSlim          0.144s      93.4%       4433969        554246        47490       191,782       448,218       17349.8  E4C312562E36CC29
-  CEL                           0.146s      88.2%       4379425        547428        49648       191,782       448,218        5116.5  E4C312562E36CC29
-  CEL(ExclusiveOnly)            0.141s      87.9%       4536514        567064        51603       191,782       448,218       14007.9  E4C312562E36CC29
-
-Scenario: read/write 0/100
-  lock type                    elapsed       cpu%       works/s  works/s/lock    work/cpu%         reads        writes  avg write ns             state
-  lock                          0.147s     100.4%       4357654        544707        43401             0       640,000       14154.6  4CD28C3524A9BA6F
-  ReaderWriterLockSlim          0.161s      92.2%       3975301        496913        43116             0       640,000       15026.7  4CD28C3524A9BA6F
-  CEL                           0.151s      80.3%       4244409        530551        52852             0       640,000       14633.0  4CD28C3524A9BA6F
-  CEL(ExclusiveOnly)            0.148s      77.5%       4338768        542346        56014             0       640,000       14312.1  4CD28C3524A9BA6F
-
-sink=4320303262889978983
-```
-
-</details>
+<a href="CEL_Intel Platinum 8269CY @ 2.50GHz, 2 Sockets 52 Cores 104 Threads, Ubuntu 26.04.md">双路 Intel Xeon Platinum 8269CY（52 核 104 线程，Ubuntu 26.04）完整基准测试报告</a>
 
 ---
 

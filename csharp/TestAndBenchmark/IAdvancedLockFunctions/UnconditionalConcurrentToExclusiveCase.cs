@@ -5,7 +5,7 @@ using IntomicLib;
 namespace LockBenchmark;
 
 /// <summary>
-/// 验证无条件 ConcurrentToExclusive() 的正确性：单线程基本语义、多线程收敛隔离、Scope 释放协议。
+/// Verifies unconditional ConcurrentToExclusive(): single-thread semantics, multi-thread convergence isolation, and Scope cleanup.
 /// </summary>
 internal sealed class UnconditionalConcurrentToExclusiveCase : IAdvancedLockCorrectnessCase
 {

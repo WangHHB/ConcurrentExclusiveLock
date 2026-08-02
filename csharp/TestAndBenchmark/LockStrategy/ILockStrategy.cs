@@ -1,14 +1,28 @@
-using System;
-
 namespace LockBenchmark;
 
 /// <summary>
-/// 将不同锁的获取和释放方式统一为标准业务读写操作。
-/// 实现只能负责锁协议，不应包含工作集创建、线程调度或指标统计。
+/// Common lock protocol used by throughput and latency experiments.
+/// Implementations expose acquisition separately so acquisition wait can be measured without held-lock work.
 /// </summary>
 internal interface ILockStrategy : IDisposable
 {
     string Name { get; }
-    long ExecuteRead(IWork work);
-    long ExecuteWrite(IWork work);
+    void AcquireConcurrent();
+    void ReleaseConcurrent();
+    void AcquireExclusive();
+    void ReleaseExclusive();
+
+    long ExecuteConcurrent(IWork work)
+    {
+        AcquireConcurrent();
+        try { return work.TickRead(); }
+        finally { ReleaseConcurrent(); }
+    }
+
+    long ExecuteExclusive(IWork work)
+    {
+        AcquireExclusive();
+        try { return work.TickWrite(); }
+        finally { ReleaseExclusive(); }
+    }
 }

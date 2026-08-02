@@ -44,8 +44,8 @@ internal sealed class ExclusiveToConcurrentCorrectnessCase : IAdvancedLockCorrec
         }
         finally
         {
-            // 如果上面已经 ReleaseConcurrent，这里普通释放会由后续可复用断言兜底；
-            // 不做额外释放，避免破坏锁状态。
+            // Do not attempt speculative cleanup here: later reusability assertions detect a missing release,
+            // while an extra release could corrupt the lock state.
         }
 
         AdvancedAssert.Wait(writerEntered, "Queued Exclusive did not enter after downgraded Concurrent released.");
@@ -125,7 +125,7 @@ internal sealed class ConcurrentToExclusiveCorrectnessCase : IAdvancedLockCorrec
                 }
                 else
                 {
-                    // 失败者的 Concurrent 必须已被自动释放，不能再手动 ReleaseConcurrent。
+                    // A failed upgrade must already release Concurrent; the loser must not release it again.
                     Interlocked.Increment(ref losers);
                 }
             });
@@ -936,12 +936,12 @@ internal sealed class ConcurrentToExclusiveCorrectnessCase : IAdvancedLockCorrec
                 if (scope.TryConcurrentToExclusiveWithSwitchContextID(ContextId + 2))
                 {
                     Interlocked.Increment(ref winners);
-                    // Dispose 必须释放成功者的 Exclusive。
+                    // Dispose must release the winner's Exclusive permission.
                 }
                 else
                 {
                     Interlocked.Increment(ref losers);
-                    // Dispose 不得再次释放失败者已自动释放的 Concurrent。
+                    // Dispose must not re-release the loser's already released Concurrent permission.
                 }
             });
         }

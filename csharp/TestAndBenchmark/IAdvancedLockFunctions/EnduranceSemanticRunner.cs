@@ -1,26 +1,34 @@
 using System;
 using System.Diagnostics;
-using System.Runtime.InteropServices;
 using System.Threading;
 using IntomicLib;
 
 namespace LockBenchmark;
 
 /// <summary>
-/// 长时间复用同一批锁对象，持续执行随机合法权限路径并观察进程健康状态。
-/// 拓扑由逻辑处理器数量自动生成，命令行只需给出测试时长。
+/// Reuses the same persistent lock objects while repeatedly executing randomized contract-valid
+/// permission paths and reporting process health.
 /// </summary>
+/// <remarks>
+/// Lock count, workers per lock, rounds per batch, and the optional base seed are literal command-line
+/// inputs. Hardware discovery never scales the topology. A printed base seed deterministically derives
+/// every batch seed through <see cref="PortableRandom"/>.
+/// </remarks>
 internal static class EnduranceSemanticRunner
 {
-    private const int WorkersPerLock = 4;
-    private const int RoundsPerBatch = 256;
     private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromMinutes(1);
 
-    public static int Run(TimeSpan duration)
+    public static int Run(
+        TimeSpan duration,
+        int lockCount,
+        int workersPerLock,
+        int roundsPerBatch,
+        int? requestedSeed)
     {
+        PortableRandomContract.Validate();
+        int baseSeed = requestedSeed ?? SeedSource.Create();
+        PortableRandom seedSource = new PortableRandom(baseSeed);
         int processorCount = Math.Max(1, Environment.ProcessorCount);
-        int lockCount = Math.Clamp((processorCount + 1) / 2, 8, 128);
-        int numaNodes = GetNumaNodeCount();
         SharedConcurrentExclusiveLock[] locks = new SharedConcurrentExclusiveLock[lockCount];
         for (int index = 0; index < locks.Length; index++)
         {
@@ -29,13 +37,9 @@ internal static class EnduranceSemanticRunner
 
         Console.WriteLine("Semantic endurance validation");
         Console.WriteLine(
-            $"duration={FormatDuration(duration)}, logical-cpu={processorCount:n0}, numa-nodes={numaNodes:n0}");
-        Console.WriteLine(
-            $"persistent-locks={lockCount:n0}, workers/lock={WorkersPerLock:n0}, " +
-            $"batch-threads={lockCount * WorkersPerLock:n0}, rounds/lock/batch={RoundsPerBatch:n0}");
-        Console.WriteLine(
-            "The same lock objects remain alive for the entire run; every generated call path is contract-valid.");
-        Console.WriteLine("Press Ctrl+C to stop after the current batch.");
+            $"duration={FormatDuration(duration)}, persistent-locks={lockCount:n0}, workers/lock={workersPerLock:n0}, " +
+            $"batch-threads={lockCount * (long)workersPerLock:n0}, rounds/lock/batch={roundsPerBatch:n0}, " +
+            $"base-seed={baseSeed}");
         Console.WriteLine();
 
         bool cancellationRequested = false;
@@ -52,17 +56,19 @@ internal static class EnduranceSemanticRunner
         TimeSpan lastHeartbeat = TimeSpan.Zero;
         long completedBatches = 0;
         long completedRounds = 0;
+        int lastBatchSeed = baseSeed;
         long[] totals = new long[5];
 
         try
         {
-            while (elapsed.Elapsed < duration && !Volatile.Read(ref cancellationRequested))
+            do
             {
-                int seed = Random.Shared.Next();
+                int seed = seedSource.NextSeed();
+                lastBatchSeed = seed;
                 RandomizedValidSemanticPathsCase batch = new RandomizedValidSemanticPathsCase(
                     lockCount,
-                    WorkersPerLock,
-                    RoundsPerBatch,
+                    workersPerLock,
+                    roundsPerBatch,
                     seed,
                     locks,
                     printSummary: false);
@@ -82,7 +88,7 @@ internal static class EnduranceSemanticRunner
                 }
 
                 completedBatches++;
-                completedRounds += (long)lockCount * RoundsPerBatch;
+                completedRounds += (long)lockCount * roundsPerBatch;
                 long[] counts = batch.LastOperationCounts;
                 for (int index = 0; index < totals.Length; index++)
                 {
@@ -103,7 +109,7 @@ internal static class EnduranceSemanticRunner
 
                     Console.WriteLine(
                         $"[OK] elapsed={FormatDuration(now)}, remaining={FormatDuration(remaining)}, " +
-                        $"batches={completedBatches:n0}, rounds={completedRounds:n0}, cpu={cpuPercent:0.0}%, " +
+                        $"batches={completedBatches:n0}, rounds={completedRounds:n0}, last-seed={lastBatchSeed}, cpu={cpuPercent:0.0}%, " +
                         $"working-set={ToMiB(process.WorkingSet64):n0}MiB, private={ToMiB(process.PrivateMemorySize64):n0}MiB, " +
                         $"managed={ToMiB(GC.GetTotalMemory(false)):n0}MiB, threads={process.Threads.Count:n0}, " +
                         $"gc={GC.CollectionCount(0)}/{GC.CollectionCount(1)}/{GC.CollectionCount(2)}");
@@ -116,12 +122,13 @@ internal static class EnduranceSemanticRunner
                     lastCpu = currentCpu;
                 }
             }
+            while (elapsed.Elapsed < duration && !Volatile.Read(ref cancellationRequested));
 
             Console.WriteLine();
             Console.WriteLine(
                 $"[PASS] endurance completed: elapsed={FormatDuration(elapsed.Elapsed)}, " +
                 $"batches={completedBatches:n0}, rounds={completedRounds:n0}, " +
-                $"persistent-locks={lockCount:n0}.");
+                $"persistent-locks={lockCount:n0}, base-seed={baseSeed}, last-seed={lastBatchSeed}.");
             return 0;
         }
         finally
@@ -139,41 +146,22 @@ internal static class EnduranceSemanticRunner
             return $"{(int)value.TotalDays}.{value:hh\\:mm\\:ss}";
         }
 
+        if (value.TotalMinutes < 1)
+        {
+            return $"{value.TotalSeconds:0.000}s";
+        }
+
         return value.ToString(@"hh\:mm\:ss");
     }
 
     private static string FormatException(Exception exception)
     {
         string result = $"{exception.GetType().Name}: {exception.Message}";
-        for (Exception inner = exception.InnerException; inner != null; inner = inner.InnerException)
+        for (Exception? inner = exception.InnerException; inner != null; inner = inner.InnerException)
         {
             result += $" -> {inner.GetType().Name}: {inner.Message}";
         }
         return result;
     }
 
-    private static int GetNumaNodeCount()
-    {
-        if (!OperatingSystem.IsWindows())
-        {
-            return 1;
-        }
-
-        try
-        {
-            return GetNumaHighestNodeNumber(out uint highestNode) ? checked((int)highestNode + 1) : 1;
-        }
-        catch (DllNotFoundException)
-        {
-            return 1;
-        }
-        catch (EntryPointNotFoundException)
-        {
-            return 1;
-        }
-    }
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool GetNumaHighestNodeNumber(out uint highestNodeNumber);
 }

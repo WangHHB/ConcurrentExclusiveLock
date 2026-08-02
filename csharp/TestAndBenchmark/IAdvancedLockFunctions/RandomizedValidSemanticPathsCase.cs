@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Threading;
 using IntomicLib;
 
@@ -10,7 +10,7 @@ internal sealed class RandomizedValidSemanticPathsCase : IAdvancedLockCorrectnes
     private readonly int workersPerLock;
     private readonly int roundsPerLock;
     private readonly int seed;
-    private readonly SharedConcurrentExclusiveLock[] sharedLocks;
+    private readonly SharedConcurrentExclusiveLock[]? sharedLocks;
     private readonly bool printSummary;
     private long concurrentPaths;
     private long exclusivePaths;
@@ -24,12 +24,15 @@ internal sealed class RandomizedValidSemanticPathsCase : IAdvancedLockCorrectnes
         int workersPerLock,
         int roundsPerLock,
         int seed,
-        SharedConcurrentExclusiveLock[] sharedLocks = null,
+        SharedConcurrentExclusiveLock[]? sharedLocks = null,
         bool printSummary = true)
     {
-        this.lockInstances = Math.Max(1, lockInstances);
-        this.workersPerLock = Math.Max(1, workersPerLock);
-        this.roundsPerLock = Math.Max(1, roundsPerLock);
+        if (lockInstances < 1) throw new ArgumentOutOfRangeException(nameof(lockInstances));
+        if (workersPerLock < 1) throw new ArgumentOutOfRangeException(nameof(workersPerLock));
+        if (roundsPerLock < 1) throw new ArgumentOutOfRangeException(nameof(roundsPerLock));
+        this.lockInstances = lockInstances;
+        this.workersPerLock = workersPerLock;
+        this.roundsPerLock = roundsPerLock;
         this.seed = seed;
         this.sharedLocks = sharedLocks;
         this.printSummary = printSummary;
@@ -69,7 +72,7 @@ internal sealed class RandomizedValidSemanticPathsCase : IAdvancedLockCorrectnes
                 int capturedWorkerIndex = workerIndex;
                 threads.Start($"random-semantic-{capturedLockIndex}-{capturedWorkerIndex}", () =>
                 {
-                    Random random = new Random(seed + capturedLockIndex * 1009 + capturedWorkerIndex * 9176);
+                    PortableRandom random = new PortableRandom(PortableSeed.Derive(seed, capturedLockIndex, 1009U, capturedWorkerIndex, 9176U));
                     ready.Signal();
                     start.Wait();
                     for (int round = 0; round < roundsPerLock; round++)
@@ -126,7 +129,7 @@ internal sealed class RandomizedValidSemanticPathsCase : IAdvancedLockCorrectnes
     private void ExecuteRandomPath(
         ref ConcurrentExclusiveLock locker,
         AccessTracker tracker,
-        Random random,
+        PortableRandom random,
         int path,
         int lockIndex,
         int workerIndex,
@@ -220,7 +223,7 @@ internal sealed class RandomizedValidSemanticPathsCase : IAdvancedLockCorrectnes
         return Interlocked.Increment(ref nextEpochId);
     }
 
-    private static void DoRandomWork(Random random, int workerIndex, int round)
+    private static void DoRandomWork(PortableRandom random, int workerIndex, int round)
     {
         if (random.Next(4) == 0)
         {

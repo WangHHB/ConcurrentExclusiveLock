@@ -5,7 +5,7 @@ using IntomicLib;
 namespace LockBenchmark;
 
 /// <summary>
-/// 多锁独立并发语义冒烟：每把锁只和自己的线程竞争，验证新 ContextID 升级语义不会跨锁串扰。
+/// Multi-lock isolation smoke test: each lock competes only with its own workers and ContextID upgrades must not interfere across locks.
 /// </summary>
 internal sealed class AdvancedMassiveIndependentLocksCase : IAdvancedLockCorrectnessCase
 {
@@ -15,8 +15,10 @@ internal sealed class AdvancedMassiveIndependentLocksCase : IAdvancedLockCorrect
 
     public AdvancedMassiveIndependentLocksCase(int lockInstances, int operationsPerLock, int seed)
     {
-        this.lockInstances = Math.Max(1, lockInstances);
-        this.operationsPerLock = Math.Max(1, operationsPerLock);
+        if (lockInstances < 1) throw new ArgumentOutOfRangeException(nameof(lockInstances));
+        if (operationsPerLock < 1) throw new ArgumentOutOfRangeException(nameof(operationsPerLock));
+        this.lockInstances = lockInstances;
+        this.operationsPerLock = operationsPerLock;
         this.seed = seed;
     }
 
@@ -43,7 +45,7 @@ internal sealed class AdvancedMassiveIndependentLocksCase : IAdvancedLockCorrect
                 int capturedParticipant = participant;
                 threads.Start($"mass-lock-{capturedLockIndex}-{capturedParticipant}", () =>
                 {
-                    Random random = new Random(seed + capturedLockIndex * 397 + capturedParticipant);
+                    PortableRandom random = new PortableRandom(PortableSeed.Derive(seed, capturedLockIndex, 397U, capturedParticipant, 1U));
                     start.Wait();
                     for (int operation = 0; operation < operationsPerLock; operation++)
                     {
@@ -77,7 +79,7 @@ internal sealed class AdvancedMassiveIndependentLocksCase : IAdvancedLockCorrect
                                 else
                                 {
                                     Interlocked.Increment(ref totalLosers);
-                                    // 失败者已经自动释放 Concurrent。
+                                    // A failed upgrade has already released the caller's Concurrent permission.
                                 }
                                 break;
                         }

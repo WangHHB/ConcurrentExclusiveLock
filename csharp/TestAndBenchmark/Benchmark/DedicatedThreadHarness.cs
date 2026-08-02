@@ -6,9 +6,15 @@ using System.Threading;
 namespace LockBenchmark;
 
 /// <summary>
-/// 创建专用 Thread，在全部线程就绪后统一放行，并收集时间和异常。
-/// 线程创建及到达 ready 屏障的时间不进入计时区间。
+/// Runs dedicated OS threads from a common start gate and propagates the first worker failure.
+/// Thread creation and arrival at the ready barrier are outside the measured interval.
 /// </summary>
+/// <remarks>
+/// Porting contract: do not replace this with a thread pool, tasks, goroutines, async jobs, or
+/// another scheduler-managed abstraction. The measured topology is exactly one dedicated worker
+/// per requested benchmark thread. Elapsed time starts immediately before opening the common gate
+/// and stops after every worker has terminated.
+/// </remarks>
 internal static class DedicatedThreadHarness
 {
     public static ThreadRunMeasurement Run(
@@ -16,7 +22,7 @@ internal static class DedicatedThreadHarness
         string threadNamePrefix,
         Action<int> workerBody)
     {
-        ExceptionDispatchInfo firstFailure = null;
+        ExceptionDispatchInfo? firstFailure = null;
         int abortBeforeStart = 0;
         using ManualResetEventSlim startGate = new ManualResetEventSlim(false);
         using CountdownEvent ready = new CountdownEvent(threadCount);
@@ -92,7 +98,7 @@ internal static class DedicatedThreadHarness
     }
 }
 
-/// <summary>统一放行到全部专用线程结束之间的原始计量。</summary>
+/// <summary>Raw wall/process-CPU measurement from common-gate release until all dedicated workers terminate.</summary>
 internal readonly struct ThreadRunMeasurement
 {
     public TimeSpan Elapsed { get; }

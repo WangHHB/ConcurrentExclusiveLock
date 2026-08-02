@@ -3,8 +3,8 @@ using System.Threading;
 namespace LockBenchmark;
 
 /// <summary>
-/// 极限基线：工作集只有少量标量，主体是整数混合与位运算，几乎不产生缓存缺失。
-/// 它用于观察临界区极短时锁本身的理论开销，不代表常规业务代码。
+/// Synthetic lower-bound workload with a tiny scalar working set and integer/bit mixing.
+/// It emphasizes synchronization overhead for extremely short critical sections and is not a claim about typical business code.
 /// </summary>
 internal sealed class CpuWork : IWork
 {

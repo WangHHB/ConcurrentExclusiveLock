@@ -4,8 +4,8 @@ using System.Threading;
 namespace LockBenchmark;
 
 /// <summary>
-/// 实际业务模拟：账户账本与资金转移。
-/// 读路径查询账户及最近审计记录；写路径校验两个账户、完成转账并追加审计记录。
+/// Business-shaped account-ledger and funds-transfer workload.
+/// Concurrent paths query accounts/audit history; Exclusive paths validate two accounts, transfer funds, and append audit state.
 /// </summary>
 internal sealed class LedgerWork : IWork
 {
@@ -28,9 +28,9 @@ internal sealed class LedgerWork : IWork
     private readonly int readSteps;
     private readonly int writeSteps;
     private readonly int accountCount;
-    private Dictionary<int, Account> accounts;
-    private AuditEntry[] audit;
-    private ThreadLocal<uint> readRandom;
+    private Dictionary<int, Account> accounts = null!;
+    private AuditEntry[] audit = null!;
+    private ThreadLocal<uint> readRandom = null!;
     private int readerSeed;
     private uint writeRandom;
     private int auditPosition;
@@ -69,7 +69,7 @@ internal sealed class LedgerWork : IWork
 
     public long TickRead()
     {
-        // 模拟余额/可用额查询，同时读取账户对象和审计环中的历史记录。
+        // Balance/availability query touching both the account object and recent audit-ring records.
         long result = Volatile.Read(ref state);
         uint random = readRandom.Value;
 
@@ -92,7 +92,7 @@ internal sealed class LedgerWork : IWork
 
     public long TickWrite()
     {
-        // 模拟事务更新：双账户查找、余额与状态校验、双边更新以及审计落表。
+        // Transaction update: two-account lookup, balance/state validation, bilateral update, and audit append.
         long result = state + 1;
         uint random = writeRandom;
 

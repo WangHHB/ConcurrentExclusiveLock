@@ -5,8 +5,8 @@ using IntomicLib;
 namespace LockBenchmark;
 
 /// <summary>
-/// 验证 Scope 确实绑定调用方提供的 struct 锁存储，而不是管理按值复制的锁副本。
-/// 这是后续自动释放和状态转换测试成立的前置条件。
+/// Verifies that Scope binds to the caller-provided lock handle/state rather than accidentally managing an independent copied lock.
+/// This is a prerequisite for all later automatic cleanup and permission-transition tests.
 /// </summary>
 internal sealed class ConcurrentExclusiveLockScopeBindingCase : IAdvancedLockCorrectnessCase
 {

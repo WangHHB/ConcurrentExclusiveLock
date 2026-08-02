@@ -4,16 +4,16 @@ using System.Threading;
 namespace LockBenchmark;
 
 /// <summary>
-/// 极限基线：在大块共享内存中进行随机读写，刻意制造缓存、NUMA 和内存带宽压力。
-/// 它用于观察线程切换后恢复巨大工作集的代价，不对应某个具体业务领域。
+/// Synthetic large-memory workload that deliberately exercises cache, NUMA, and memory-bandwidth effects.
+/// It models resuming a large shared working set after scheduling/permission changes rather than a specific business domain.
 /// </summary>
 internal sealed class MemoryWork : IWork
 {
     private readonly int readSteps;
     private readonly int writeSteps;
     private readonly int workingSetMb;
-    private long[] buffer;
-    private ThreadLocal<uint> readRandom;
+    private long[] buffer = null!;
+    private ThreadLocal<uint> readRandom = null!;
     private int readerSeed;
     private uint writeRandom;
     private long state;
@@ -31,7 +31,7 @@ internal sealed class MemoryWork : IWork
     {
         long bytes = checked((long)workingSetMb * 1024 * 1024);
         int elementCount = checked((int)(bytes / sizeof(long)));
-        buffer = new long[Math.Max(1_024, elementCount)];
+        buffer = new long[elementCount];
 
         long current = (long)0x6A09E667F3BCC909UL;
         for (int i = 0; i < buffer.Length; i++)
@@ -48,7 +48,7 @@ internal sealed class MemoryWork : IWork
 
     public long TickRead()
     {
-        // 读路径只读取共享 buffer；随机游标保存在 ThreadLocal 中，不污染共享业务状态。
+        // Concurrent path reads only the shared buffer; the cursor is thread-local and does not mutate business state.
         long result = Volatile.Read(ref state);
         uint random = readRandom.Value;
 
@@ -65,7 +65,7 @@ internal sealed class MemoryWork : IWork
 
     public long TickWrite()
     {
-        // 写路径原位更新随机位置，模拟大型共享索引或状态表的修改。
+        // Exclusive path updates random positions in place, modeling a large shared index/state table.
         long result = state + 1;
         uint random = writeRandom;
 

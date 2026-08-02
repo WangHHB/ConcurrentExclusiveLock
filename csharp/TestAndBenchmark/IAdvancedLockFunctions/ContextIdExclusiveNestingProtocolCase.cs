@@ -5,8 +5,8 @@ using IntomicLib;
 namespace LockBenchmark;
 
 /// <summary>
-/// 验证业务层使用固定 ContextID 识别同一同步调用上下文时，
-/// 可以跳过重复 Exclusive 获取，同时不提前释放外层权限。
+/// Verifies a business-level nesting protocol in which a stable ContextID identifies the same
+/// synchronization context, allowing duplicate Exclusive acquisition to be skipped without releasing the outer permission early.
 /// </summary>
 internal sealed class ContextIdExclusiveNestingProtocolCase : IAdvancedLockCorrectnessCase
 {
@@ -77,7 +77,7 @@ internal sealed class ContextIdExclusiveNestingProtocolCase : IAdvancedLockCorre
                 "Nested same-context exit released the outer Exclusive permission.");
         });
 
-        // 外层先清零 ContextID 再释放 Exclusive 后，不同上下文才允许进入。
+        // A different context may enter only after the outer owner clears ContextID and releases Exclusive.
         AdvancedAssert.Wait(
             contenderEntered,
             "Different ContextID did not enter after the outer context released Exclusive.");
@@ -113,7 +113,7 @@ internal sealed class ContextIdExclusiveNestingProtocolCase : IAdvancedLockCorre
         {
             if (ownsExclusive)
             {
-                // 必须在仍持有 Exclusive 时清除，不能给下一任所有者留下旧上下文窗口。
+                // Clear while still holding Exclusive so the next owner cannot observe a stale-context window.
                 locker.ContextID = 0;
                 locker.ReleaseExclusive();
             }

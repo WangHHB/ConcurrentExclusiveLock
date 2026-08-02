@@ -1,31 +1,14 @@
+using System.Threading;
+
 namespace LockBenchmark;
 
-/// <summary>
-/// 使用 C# monitor lock 的排他基线；读写业务均串行执行。
-/// </summary>
 internal sealed class MonitorLockStrategy : ILockStrategy
 {
-    private readonly object locker = new object();
-
+    private readonly object locker = new();
     public string Name => "lock";
-
-    public long ExecuteRead(IWork work)
-    {
-        lock (locker)
-        {
-            return work.TickRead();
-        }
-    }
-
-    public long ExecuteWrite(IWork work)
-    {
-        lock (locker)
-        {
-            return work.TickWrite();
-        }
-    }
-
-    public void Dispose()
-    {
-    }
+    public void AcquireConcurrent() => Monitor.Enter(locker);
+    public void ReleaseConcurrent() => Monitor.Exit(locker);
+    public void AcquireExclusive() => Monitor.Enter(locker);
+    public void ReleaseExclusive() => Monitor.Exit(locker);
+    public void Dispose() { }
 }

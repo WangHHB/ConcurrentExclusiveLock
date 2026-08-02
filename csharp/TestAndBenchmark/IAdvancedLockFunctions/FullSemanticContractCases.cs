@@ -5,7 +5,7 @@ using IntomicLib;
 
 namespace LockBenchmark;
 
-/// <summary>覆盖 Concurrent 获取重载、ID 上限、容量、立即失败、超时和无限等待。</summary>
+/// <summary>Covers Concurrent overloads, ID limits, capacity, immediate failure, timeout, and infinite wait.</summary>
 internal sealed class ConcurrentAcquireFullSemanticCase : IAdvancedLockCorrectnessCase
 {
     public string Name => "Concurrent acquire IDs, limits, immediate attempts, timeouts, and release semantics";
@@ -227,7 +227,7 @@ internal sealed class ConcurrentAcquireFullSemanticCase : IAdvancedLockCorrectne
     }
 }
 
-/// <summary>覆盖 Exclusive 立即、抢占、非抢占、超时、无限等待和释放协议。</summary>
+/// <summary>Covers immediate/preemptive/non-preemptive Exclusive, timeout, infinite wait, and release protocol.</summary>
 internal sealed class ExclusiveAcquireFullSemanticCase : IAdvancedLockCorrectnessCase
 {
     public string Name => "Exclusive acquire preemption, non-preemption, immediate attempts, timeouts, and release semantics";
@@ -454,7 +454,7 @@ internal sealed class ExclusiveAcquireFullSemanticCase : IAdvancedLockCorrectnes
             try
             {
                 holderEntered.Set();
-                // 即使被测调用错误地等待，也会在短时间后自动释放，避免测试永久阻塞。
+                // Release shortly afterward even if the tested call waits incorrectly, preventing a permanent test hang.
                 releaseHolder.Wait(TimeSpan.FromMilliseconds(250));
             }
             finally

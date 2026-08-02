@@ -5,7 +5,7 @@ using IntomicLib;
 namespace LockBenchmark;
 
 /// <summary>
-/// 验证 Exclusive -> Concurrent -> TryConcurrentToExclusiveWithSwitchContextID 的连续转换不会给普通 Exclusive 插队窗口。
+/// Verifies that Exclusive -> Concurrent -> conditional in-place upgrade remains continuous and exposes no insertion window to ordinary Exclusive requests.
 /// </summary>
 internal sealed class PermissionConversionCycleCorrectnessCase : IAdvancedLockCorrectnessCase
 {

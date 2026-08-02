@@ -4,8 +4,8 @@ using System.Threading;
 namespace LockBenchmark;
 
 /// <summary>
-/// 为值类型 ConcurrentExclusiveLock 提供稳定的共享存储位置。
-/// 测试线程共享本引用对象，并始终直接操作 Value 字段，禁止按值传递锁副本。
+/// Provides a stable shared storage location for the value-type ConcurrentExclusiveLock handle.
+/// Test threads share this reference object and operate directly on Value; ports must not accidentally copy independent lock state.
 /// </summary>
 internal sealed class SharedConcurrentExclusiveLock
 {

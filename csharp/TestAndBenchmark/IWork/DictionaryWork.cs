@@ -4,8 +4,8 @@ using System.Threading;
 namespace LockBenchmark;
 
 /// <summary>
-/// 实际业务模拟：进程内行情/对象缓存。
-/// 共享数据包含字符串业务键、Dictionary 哈希桶和对象字段，热路径不额外分配对象。
+/// Business-shaped in-process quote/object-cache workload.
+/// Shared data includes string keys, dictionary buckets, and object fields; the hot path performs no intentional allocation.
 /// </summary>
 internal sealed class DictionaryWork : IWork
 {
@@ -29,9 +29,9 @@ internal sealed class DictionaryWork : IWork
     private readonly int readSteps;
     private readonly int writeSteps;
     private readonly int entryCount;
-    private string[] keys;
-    private Dictionary<string, CacheEntry> cache;
-    private ThreadLocal<uint> readRandom;
+    private string[] keys = null!;
+    private Dictionary<string, CacheEntry> cache = null!;
+    private ThreadLocal<uint> readRandom = null!;
     private int readerSeed;
     private uint writeRandom;
     private long state;
@@ -65,7 +65,7 @@ internal sealed class DictionaryWork : IWork
 
     public long TickRead()
     {
-        // 模拟缓存查询：字符串哈希、字典探测、对象跳转、状态校验和名义金额计算。
+        // Cache lookup: string hashing, dictionary probing, object indirection, validation, and notional calculation.
         long result = Volatile.Read(ref state);
         uint random = readRandom.Value;
 
@@ -74,7 +74,7 @@ internal sealed class DictionaryWork : IWork
             random = Next(random);
             string key = keys[(int)(random % (uint)keys.Length)];
 
-            if (cache.TryGetValue(key, out CacheEntry entry) && entry.Status != 3)
+            if (cache.TryGetValue(key, out CacheEntry? entry) && entry.Status != 3)
             {
                 result = Mix(result + entry.Price * entry.Quantity + entry.Version + entry.Symbol.Length);
             }
@@ -90,7 +90,7 @@ internal sealed class DictionaryWork : IWork
 
     public long TickWrite()
     {
-        // 模拟缓存刷新：定位对象后更新价格、数量、版本及业务状态。
+        // Cache refresh: locate an entry and update price, quantity, version, and business state.
         long result = state + 1;
         uint random = writeRandom;
 

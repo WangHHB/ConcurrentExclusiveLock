@@ -1,96 +1,37 @@
-using System;
-using System.Diagnostics;
-using System.Runtime;
-
 namespace LockBenchmark;
 
-/// <summary>标准压测的控制台输出与指标格式化。</summary>
 internal static class BenchmarkReporter
 {
-    private const int LockNameWidth = 26;
-    private const int ElapsedWidth = 8;
-    private const int CpuPercentWidth = 9;
-    private const int WorksWidth = 12;
-    private const int WorkPerCpuWidth = 11;
-    private const int CountWidth = 12;
-    private const int LatencyWidth = 12;
-    private const int StateWidth = 16;
-    private const string ColumnGap = "  ";
-
-    public static void PrintEnvironment()
+    public static void PrintEnvironment(EnvironmentSnapshot environment)
     {
-        Console.WriteLine("Lock benchmark");
-        Console.WriteLine($".NET={Environment.Version}, OS={Environment.OSVersion}");
-        Console.WriteLine($"GC={GCSettings.IsServerGC}, CPU={Environment.ProcessorCount}");
+        Console.WriteLine($"runtime={environment.Framework}");
+        Console.WriteLine($"OS={environment.OsDescription}, process-arch={environment.ProcessArchitecture}, OS-arch={environment.OsArchitecture}");
+
+        List<string> cpu = new() { $"logical={environment.LogicalProcessors}" };
+        if (!string.IsNullOrWhiteSpace(environment.CpuModel)) cpu.Add($"model={environment.CpuModel}");
+        if (environment.AllowedLogicalProcessors.HasValue) cpu.Add($"cpuset={environment.AllowedLogicalProcessors.Value}");
+        if (environment.CpuQuotaProcessors.HasValue) cpu.Add($"quota={environment.CpuQuotaProcessors.Value:0.###}");
+        if (environment.PhysicalCores.HasValue) cpu.Add($"physical={environment.PhysicalCores.Value}");
+        if (environment.Sockets.HasValue) cpu.Add($"sockets={environment.Sockets.Value}");
+        if (environment.NumaNodes.HasValue) cpu.Add($"NUMA={environment.NumaNodes.Value}");
+        if (environment.SmtActive.HasValue) cpu.Add($"SMT={environment.SmtActive.Value}");
+        Console.WriteLine($"CPU={string.Join(", ", cpu)}");
+
+        Console.WriteLine($"ServerGC={environment.ServerGc}, GC={environment.GcLatencyMode}, StopwatchFrequency={environment.StopwatchFrequency:n0}");
         Console.WriteLine();
     }
 
-    public static void PrintConfiguration(BenchmarkOptions options, WorkDefinition workDefinition)
+    public static string FormatLatency(double nanoseconds)
     {
-        Console.WriteLine(
-            $"lock-instances={options.LockInstances:n0}, threads/lock={options.Threads}, " +
-            $"total-threads={options.TotalWorkerThreads:n0}, " +
-            $"works/thread={options.OperationsPerThread:n0}, " +
-            $"read-steps={options.ReadSteps}, write-steps={options.WriteSteps}");
-        Console.WriteLine($"workload={workDefinition.Name}");
-        Console.WriteLine("Workers use dedicated Thread instances and start from a common gate.");
-        Console.WriteLine("Each lock instance owns a fresh IWork; all worker groups share one start gate.");
-        if (options.TotalWorkerThreads > (long)Environment.ProcessorCount * 32)
-        {
-            Console.WriteLine(
-                $"WARNING: preparing {options.TotalWorkerThreads:n0} dedicated OS threads may take a long time or exceed system resources.");
-        }
-        Console.WriteLine();
+        if (nanoseconds >= 1_000_000) return $"{nanoseconds / 1_000_000:0.###}ms";
+        if (nanoseconds >= 1_000) return $"{nanoseconds / 1_000:0.###}us";
+        return $"{nanoseconds:0.###}ns";
     }
 
-    public static void PrintScenarioHeader(BenchmarkScenario scenario)
+    public static string FormatDuration(TimeSpan value)
     {
-        Console.WriteLine($"Scenario: {scenario.Name}");
-        Console.WriteLine(
-            $"  {"lock type",-LockNameWidth}{ColumnGap}" +
-            $"{"elapsed",ElapsedWidth}{ColumnGap}" +
-            $"{"cpu%",CpuPercentWidth}{ColumnGap}" +
-            $"{"works/s",WorksWidth}{ColumnGap}" +
-            $"{"works/s/lock",WorksWidth}{ColumnGap}" +
-            $"{"work/cpu%",WorkPerCpuWidth}{ColumnGap}" +
-            $"{"reads",CountWidth}{ColumnGap}" +
-            $"{"writes",CountWidth}{ColumnGap}" +
-            $"{"avg write ns",LatencyWidth}{ColumnGap}" +
-            $"{"state",StateWidth}");
+        if (value.TotalMilliseconds >= 1) return $"{value.TotalMilliseconds:0.###}ms";
+        return $"{value.TotalMicroseconds:0.###}us";
     }
 
-    public static void PrintResult(BenchmarkResult result, int lockInstances)
-    {
-        double elapsedSeconds = Math.Max(0.001, result.Elapsed.TotalSeconds);
-        double worksPerSecond = result.Works / elapsedSeconds;
-        double worksPerSecondPerLock = worksPerSecond / lockInstances;
-        double workPerCpuPercent = result.CpuPercent > 0.000001
-            ? worksPerSecond / result.CpuPercent
-            : 0.0;
-        string elapsed = $"{result.Elapsed.TotalSeconds:0.000}s";
-        string cpuPercent = $"{result.CpuPercent:0.0}%";
-        string state = $"{unchecked((ulong)result.StateHash):X16}";
-        double avgWriteLatencyNs = result.WriteCount == 0
-            ? 0
-            : result.WriteLatencyTicks * 1_000_000_000.0 / Stopwatch.Frequency / result.WriteCount;
-
-        Console.WriteLine(
-            $"  {result.LockName,-LockNameWidth}{ColumnGap}" +
-            $"{elapsed,ElapsedWidth}{ColumnGap}" +
-            $"{cpuPercent,CpuPercentWidth}{ColumnGap}" +
-            $"{worksPerSecond,WorksWidth:0}{ColumnGap}" +
-            $"{worksPerSecondPerLock,WorksWidth:0}{ColumnGap}" +
-            $"{workPerCpuPercent,WorkPerCpuWidth:0}{ColumnGap}" +
-            $"{result.ReadWorks,CountWidth:n0}{ColumnGap}" +
-            $"{result.WriteWorks,CountWidth:n0}{ColumnGap}" +
-            $"{avgWriteLatencyNs,LatencyWidth:0.0}{ColumnGap}" +
-            $"{state,StateWidth}");
-    }
-
-    public static void PrintStateMismatch() =>
-        Console.WriteLine("  WARNING: final work state differs between lock implementations.");
-
-    public static void PrintScenarioEnd() => Console.WriteLine();
-
-    public static void PrintSink(long sink) => Console.WriteLine($"sink={sink}");
 }

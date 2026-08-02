@@ -5,7 +5,9 @@ using IntomicLib;
 namespace LockBenchmark;
 
 /// <summary>
-/// 楠岃瘉 Pipeline 鎸夊０鏄庣殑璁块棶鏉冮檺鍒囨崲 Scope 鐘舵€侊紝骞惰兘鍦ㄥ紓甯歌矾寰勮嚜鍔ㄩ噴鏀俱€?/// </summary>
+/// Verifies that Pipeline transitions permissions according to Segment declarations,
+/// preserves the actual held state across segments, and releases permission on exceptional paths.
+/// </summary>
 internal sealed class ConcurrentExclusiveLockPipelineCorrectnessCase : IAdvancedLockCorrectnessCase
 {
     private const int ContextId = 0x9001;
@@ -15,6 +17,9 @@ internal sealed class ConcurrentExclusiveLockPipelineCorrectnessCase : IAdvanced
     private readonly int seed;
     private readonly bool printSummary;
     private readonly TimeSpan? randomPipelineNoProgressTimeout;
+    private readonly int randomExceptionPermille;
+    private long randomInjectedExceptions;
+    private long randomCaughtInjectedExceptions;
     private int nextPipelineContextId = 0x10000000;
     private int nextPipelineEpochId = 0x20000000;
 
@@ -29,17 +34,26 @@ internal sealed class ConcurrentExclusiveLockPipelineCorrectnessCase : IAdvanced
         int roundsPerLock,
         int seed,
         bool printSummary = true,
-        TimeSpan? randomPipelineNoProgressTimeout = null)
+        TimeSpan? randomPipelineNoProgressTimeout = null,
+        int randomExceptionPermille = BenchmarkOptions.DefaultPipelineExceptionPermille)
     {
-        this.lockInstances = Math.Max(1, lockInstances);
-        this.workersPerLock = Math.Max(2, workersPerLock);
-        this.roundsPerLock = Math.Max(1, roundsPerLock);
+        if (lockInstances < 1) throw new ArgumentOutOfRangeException(nameof(lockInstances));
+        if (workersPerLock < 2) throw new ArgumentOutOfRangeException(nameof(workersPerLock));
+        if (roundsPerLock < 1) throw new ArgumentOutOfRangeException(nameof(roundsPerLock));
+        if (randomExceptionPermille is < 0 or > 1_000) throw new ArgumentOutOfRangeException(nameof(randomExceptionPermille));
+        this.lockInstances = lockInstances;
+        this.workersPerLock = workersPerLock;
+        this.roundsPerLock = roundsPerLock;
         this.seed = seed;
         this.printSummary = printSummary;
         this.randomPipelineNoProgressTimeout = randomPipelineNoProgressTimeout;
+        this.randomExceptionPermille = randomExceptionPermille;
     }
 
     public string Name => "ConcurrentExclusiveLockPipeline preserves declared segment access semantics";
+
+    public long RandomInjectedExceptions => Volatile.Read(ref randomInjectedExceptions);
+    public long RandomCaughtInjectedExceptions => Volatile.Read(ref randomCaughtInjectedExceptions);
 
     public void Run()
     {
@@ -518,7 +532,7 @@ internal sealed class ConcurrentExclusiveLockPipelineCorrectnessCase : IAdvanced
 
     private void VerifyTryApplyIDConvergeExclusiveHasSingleWinner()
     {
-        int participants = Math.Max(2, Math.Min(workersPerLock, 128));
+        int participants = workersPerLock;
         ConcurrentExclusiveLock locker = ConcurrentExclusiveLock.Create();
         ConcurrentExclusiveLockPipeline pipeline = new ConcurrentExclusiveLockPipeline(locker);
         AdvancedTestThreadGroup threads = new AdvancedTestThreadGroup();
@@ -568,7 +582,7 @@ internal sealed class ConcurrentExclusiveLockPipelineCorrectnessCase : IAdvanced
 
     private void VerifyTryApplyIDConvergeExclusiveDistinctContextIdsAreIsolated()
     {
-        int participants = Math.Max(2, Math.Min(workersPerLock, 128));
+        int participants = workersPerLock;
         ConcurrentExclusiveLock locker = ConcurrentExclusiveLock.Create();
         ConcurrentExclusiveLockPipeline pipeline = new ConcurrentExclusiveLockPipeline(locker);
         AdvancedTestThreadGroup threads = new AdvancedTestThreadGroup();
@@ -630,7 +644,7 @@ internal sealed class ConcurrentExclusiveLockPipelineCorrectnessCase : IAdvanced
 
     private void VerifyTryApplyIDConvergeExclusiveEpochUpgradesAreIsolated()
     {
-        int participants = Math.Max(2, Math.Min(workersPerLock, 128));
+        int participants = workersPerLock;
         ConcurrentExclusiveLock locker = ConcurrentExclusiveLock.Create();
         ConcurrentExclusiveLockPipeline pipeline = new ConcurrentExclusiveLockPipeline(locker);
         AdvancedTestThreadGroup threads = new AdvancedTestThreadGroup();
@@ -695,7 +709,7 @@ internal sealed class ConcurrentExclusiveLockPipelineCorrectnessCase : IAdvanced
 
     private void VerifyTryApplyIDConvergeExclusiveFromNoneIsIsolated()
     {
-        int participants = Math.Max(2, Math.Min(workersPerLock, 128));
+        int participants = workersPerLock;
         ConcurrentExclusiveLock locker = ConcurrentExclusiveLock.Create();
         ConcurrentExclusiveLockPipeline pipeline = new ConcurrentExclusiveLockPipeline(locker);
         AdvancedTestThreadGroup threads = new AdvancedTestThreadGroup();
@@ -738,7 +752,7 @@ internal sealed class ConcurrentExclusiveLockPipelineCorrectnessCase : IAdvanced
 
     private void VerifyTryApplyIDConvergeExclusiveRepeatedCyclesAreIsolated()
     {
-        int participants = Math.Max(2, Math.Min(workersPerLock, 16));
+        int participants = workersPerLock;
         const int cycles = 96;
         ConcurrentExclusiveLock locker = ConcurrentExclusiveLock.Create();
         ConcurrentExclusiveLockPipeline pipeline = new ConcurrentExclusiveLockPipeline(locker);
@@ -864,7 +878,7 @@ internal sealed class ConcurrentExclusiveLockPipelineCorrectnessCase : IAdvanced
                 int capturedWorker = worker;
                 threads.Start($"pipeline-random-{capturedLockIndex}-{capturedWorker}", () =>
                 {
-                    Random random = new Random(seed + capturedLockIndex * 1009 + capturedWorker * 17);
+                    PortableRandom random = new PortableRandom(PortableSeed.Derive(seed, capturedLockIndex, 1009U, capturedWorker, 17U));
                     ready.Signal();
                     start.Wait();
                     for (int round = 0; round < roundsPerLock; round++)
@@ -876,8 +890,18 @@ internal sealed class ConcurrentExclusiveLockPipelineCorrectnessCase : IAdvanced
                             capturedWorker,
                             round);
                         Interlocked.Add(ref totalSegments, segments.Length);
-                        pipelines[capturedLockIndex].DoPipeline(segments);
-                        Interlocked.Increment(ref completedRounds);
+                        try
+                        {
+                            pipelines[capturedLockIndex].DoPipeline(segments);
+                        }
+                        catch (PipelineInjectedException)
+                        {
+                            Interlocked.Increment(ref randomCaughtInjectedExceptions);
+                        }
+                        finally
+                        {
+                            Interlocked.Increment(ref completedRounds);
+                        }
                     }
                 });
             }
@@ -898,6 +922,12 @@ internal sealed class ConcurrentExclusiveLockPipelineCorrectnessCase : IAdvanced
             threads.JoinAll("Pipeline randomized complex state machine", TimeSpan.FromSeconds(timeoutSeconds));
         }
 
+        if (RandomInjectedExceptions != RandomCaughtInjectedExceptions)
+        {
+            throw new InvalidOperationException(
+                $"Every injected Pipeline exception must escape exactly once: injected={RandomInjectedExceptions:n0}, caught={RandomCaughtInjectedExceptions:n0}.");
+        }
+
         for (int lockIndex = 0; lockIndex < lockInstances; lockIndex++)
         {
             trackers[lockIndex].AssertIdle("Pipeline randomized completion");
@@ -908,14 +938,15 @@ internal sealed class ConcurrentExclusiveLockPipelineCorrectnessCase : IAdvanced
         {
             Console.WriteLine(
                 $"       pipeline random locks={lockInstances:n0}, workers/lock={workersPerLock:n0}, " +
-                $"rounds/lock={roundsPerLock:n0}, segments={totalSegments:n0}, seed={seed}");
+                $"rounds/lock={roundsPerLock:n0}, segments={totalSegments:n0}, injected={RandomCaughtInjectedExceptions:n0}, " +
+                $"exception-permille={randomExceptionPermille}, seed={seed}");
         }
     }
 
     private ConcurrentExclusiveLockSegment[] BuildRandomSegments(
         ConcurrentExclusiveLock locker,
         AccessTracker tracker,
-        Random random,
+        PortableRandom random,
         int worker,
         int round)
     {
@@ -927,38 +958,46 @@ internal sealed class ConcurrentExclusiveLockPipelineCorrectnessCase : IAdvanced
         {
             int capturedIndex = index;
             bool emptyBusiness = random.Next(4) == 0;
+            bool injectException = random.Next(1_000) < randomExceptionPermille;
+            bool throwBeforeBusiness = random.Next(2) == 0;
             string label = $"worker={worker}, round={round}, segment={capturedIndex}";
+            Action business = () => ExecuteRandomBusiness(
+                emptyBusiness,
+                injectException,
+                throwBeforeBusiness,
+                label,
+                worker,
+                round,
+                capturedIndex);
+
             switch (random.Next(8))
             {
                 case 0:
-                    segments[index] = ConcurrentExclusiveLockSegment.None(() =>
-                        DoRandomWork(emptyBusiness, worker, round, capturedIndex));
+                    segments[index] = ConcurrentExclusiveLockSegment.None(business);
                     break;
                 case 1:
+                {
+                    string operation = $"Pipeline random Concurrent ({label})";
                     segments[index] = ConcurrentExclusiveLockSegment.Concurrent(() =>
-                    {
-                        tracker.EnterConcurrent($"Pipeline random Concurrent ({label}, state={locker.ObservedState})");
-                        DoRandomWork(emptyBusiness, worker, round, capturedIndex);
-                        tracker.ExitConcurrent($"Pipeline random Concurrent ({label}, state={locker.ObservedState})");
-                    });
+                        RunConcurrentTracked(locker, tracker, operation, business));
                     break;
+                }
                 case 2:
+                {
+                    string operation = $"Pipeline random ConvergeConcurrent ({label})";
                     segments[index] = ConcurrentExclusiveLockSegment.ConvergeConcurrent(() =>
-                    {
-                        tracker.EnterConcurrent($"Pipeline random ConvergeConcurrent ({label}, state={locker.ObservedState})");
-                        DoRandomWork(emptyBusiness, worker, round, capturedIndex);
-                        tracker.ExitConcurrent($"Pipeline random ConvergeConcurrent ({label}, state={locker.ObservedState})");
-                    });
+                        RunConcurrentTracked(locker, tracker, operation, business));
                     break;
+                }
                 case 3:
+                {
+                    string operation = $"Pipeline random Exclusive ({label})";
                     segments[index] = ConcurrentExclusiveLockSegment.Exclusive(() =>
-                    {
-                        tracker.EnterExclusive($"Pipeline random Exclusive ({label}, state={locker.ObservedState})");
-                        DoRandomWork(emptyBusiness, worker, round, capturedIndex);
-                        tracker.ExitExclusive($"Pipeline random Exclusive ({label}, state={locker.ObservedState})");
-                    });
+                        RunExclusiveTracked(locker, tracker, operation, business));
                     break;
+                }
                 case 4:
+                {
                     ConcurrentExclusiveLockSegment.IDType idType = ((round + capturedIndex) & 1) == 0
                         ? ConcurrentExclusiveLockSegment.IDType.ContextID
                         : ConcurrentExclusiveLockSegment.IDType.EpochID;
@@ -966,37 +1005,32 @@ internal sealed class ConcurrentExclusiveLockPipelineCorrectnessCase : IAdvanced
                         ? CreateContextId()
                         : CreateEpochId();
                     string idLabel = $"{label}, idType={idType}, id={id}";
+                    string operation = $"Pipeline random TryApplyIDConvergeExclusive ({idLabel})";
                     segments[index] = ConcurrentExclusiveLockSegment.TryApplyIDConvergeExclusive(() =>
-                    {
-                        tracker.EnterExclusive($"Pipeline random TryApplyIDConvergeExclusive ({idLabel}, state={locker.ObservedState})");
-                        DoRandomWork(emptyBusiness, worker, round, capturedIndex);
-                        tracker.ExitExclusive($"Pipeline random TryApplyIDConvergeExclusive ({idLabel}, state={locker.ObservedState})");
-                    }, id, idType);
+                        RunExclusiveTracked(locker, tracker, operation, business), id, idType);
                     break;
+                }
                 case 5:
+                {
+                    string operation = $"Pipeline random ConvergeExclusive ({label})";
                     segments[index] = ConcurrentExclusiveLockSegment.ConvergeExclusive(() =>
-                    {
-                        tracker.EnterExclusive($"Pipeline random ConvergeExclusive ({label}, state={locker.ObservedState})");
-                        DoRandomWork(emptyBusiness, worker, round, capturedIndex);
-                        tracker.ExitExclusive($"Pipeline random ConvergeExclusive ({label}, state={locker.ObservedState})");
-                    });
+                        RunExclusiveTracked(locker, tracker, operation, business));
                     break;
+                }
                 case 6:
+                {
+                    string operation = $"Pipeline random TryExclusive ({label})";
                     segments[index] = ConcurrentExclusiveLockSegment.TryExclusive(() =>
-                    {
-                        tracker.EnterExclusive($"Pipeline random TryExclusive ({label}, state={locker.ObservedState})");
-                        DoRandomWork(emptyBusiness, worker, round, capturedIndex);
-                        tracker.ExitExclusive($"Pipeline random TryExclusive ({label}, state={locker.ObservedState})");
-                    });
+                        RunExclusiveTracked(locker, tracker, operation, business));
                     break;
+                }
                 default:
+                {
+                    string operation = $"Pipeline random TryConcurrent ({label})";
                     segments[index] = ConcurrentExclusiveLockSegment.TryConcurrent(() =>
-                    {
-                        tracker.EnterConcurrent($"Pipeline random TryConcurrent ({label}, state={locker.ObservedState})");
-                        DoRandomWork(emptyBusiness, worker, round, capturedIndex);
-                        tracker.ExitConcurrent($"Pipeline random TryConcurrent ({label}, state={locker.ObservedState})");
-                    });
+                        RunConcurrentTracked(locker, tracker, operation, business));
                     break;
+                }
             }
         }
 
@@ -1039,11 +1073,70 @@ internal sealed class ConcurrentExclusiveLockPipelineCorrectnessCase : IAdvanced
         AdvancedSemanticSink.Add(unchecked((long)(((ulong)worker << 32) ^ (uint)(round * 31 + segment))));
     }
 
-    private static void DoRandomWork(bool emptyBusiness, int worker, int round, int segment)
+    private void ExecuteRandomBusiness(
+        bool emptyBusiness,
+        bool injectException,
+        bool throwBeforeBusiness,
+        string label,
+        int worker,
+        int round,
+        int segment)
     {
+        if (injectException && throwBeforeBusiness)
+        {
+            ThrowRandomInjectedException(label, "before-business");
+        }
+
         if (!emptyBusiness)
         {
             DoTinyWork(worker, round, segment);
+        }
+
+        if (injectException && !throwBeforeBusiness)
+        {
+            ThrowRandomInjectedException(label, "after-business");
+        }
+    }
+
+    private void ThrowRandomInjectedException(string label, string phase)
+    {
+        Interlocked.Increment(ref randomInjectedExceptions);
+        throw new PipelineInjectedException($"Random Pipeline exception ({label}, phase={phase})");
+    }
+
+    private static void RunConcurrentTracked(
+        ConcurrentExclusiveLock locker,
+        AccessTracker tracker,
+        string operation,
+        Action business)
+    {
+        string statefulOperation = $"{operation}, state={locker.ObservedState}";
+        tracker.EnterConcurrent(statefulOperation);
+        try
+        {
+            business();
+        }
+        finally
+        {
+            tracker.ExitConcurrent(statefulOperation);
+        }
+    }
+
+    private static void RunExclusiveTracked(
+        ConcurrentExclusiveLock locker,
+        AccessTracker tracker,
+        string operation,
+        Action business)
+    {
+        string statefulOperation = $"{operation}, state={locker.ObservedState}";
+        tracker.EnterExclusive(statefulOperation);
+        try
+        {
+            business();
+        }
+        finally
+        {
+            tracker.ExitExclusive(statefulOperation);
         }
     }
 

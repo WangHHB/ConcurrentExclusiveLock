@@ -3,7 +3,7 @@ using System.Collections.Generic;
 
 namespace LockBenchmark;
 
-/// <summary>阶段5总控：完整访问契约和随机合法状态路径测试。</summary>
+/// <summary>Runs the complete access contract plus randomized contract-valid state paths.</summary>
 internal static class FullSemanticCorrectnessRunner
 {
     public static List<IAdvancedLockCorrectnessCase> CreateCases(
@@ -11,6 +11,7 @@ internal static class FullSemanticCorrectnessRunner
         int workersPerLock,
         int operationsPerLock,
         int randomSeed,
+        int pipelineExceptionPermille,
         bool printRandomSummaries = true)
     {
         return new List<IAdvancedLockCorrectnessCase>
@@ -31,7 +32,8 @@ internal static class FullSemanticCorrectnessRunner
                 workersPerLock,
                 operationsPerLock,
                 randomSeed,
-                printRandomSummaries),
+                printRandomSummaries,
+                randomExceptionPermille: pipelineExceptionPermille),
             new RandomizedValidSemanticPathsCase(
                 lockInstances,
                 workersPerLock,
@@ -45,21 +47,22 @@ internal static class FullSemanticCorrectnessRunner
         int lockInstances,
         int workersPerLock,
         int operationsPerLock,
-        int? requestedSeed)
+        int? requestedSeed,
+        int pipelineExceptionPermille)
     {
-        int randomSeed = requestedSeed ?? Random.Shared.Next();
+        int randomSeed = requestedSeed ?? SeedSource.Create();
         List<IAdvancedLockCorrectnessCase> cases = CreateCases(
             lockInstances,
             workersPerLock,
             operationsPerLock,
-            randomSeed);
+            randomSeed,
+            pipelineExceptionPermille);
 
-        Console.WriteLine("Stage 5: full lock semantic correctness");
-        Console.WriteLine("State/Contention are validated only as diagnostic snapshots, not as strong-consistency counters.");
+        Console.WriteLine("Full semantic correctness");
         Console.WriteLine(
             $"Random valid paths: locks={lockInstances:n0}, workers/lock={workersPerLock:n0}, " +
             $"rounds/lock={operationsPerLock:n0}, total-threads={lockInstances * (long)workersPerLock:n0}, " +
-            $"seed={randomSeed}.");
+            $"seed={randomSeed}, pipeline-exception-permille={pipelineExceptionPermille}.");
         Console.WriteLine();
 
         int passed = 0;

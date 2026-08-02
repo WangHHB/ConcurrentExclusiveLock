@@ -1,19 +1,22 @@
-using System;
 using System.Diagnostics;
 using System.Threading;
 
 namespace LockBenchmark;
 
-/// <summary>
-/// 执行一个独立测试案例并返回纯数据结果，不负责场景遍历、预热或输出。
-/// </summary>
+/// <summary>Executes one throughput strategy/scenario over the literal multi-lock topology.</summary>
+/// <remarks>
+/// Porting contract: global worker i maps to lock i / threadsPerLock and local worker
+/// i % threadsPerLock. Each lock owns one fresh workload object. All workers start from the same
+/// gate, and elapsed time ends only after every dedicated worker terminates. The operation-mix
+/// stream is coordinate-deterministic and identical for every compared lock strategy.
+/// </remarks>
 internal static class BenchmarkCaseRunner
 {
-    public static BenchmarkResult Run(
+    public static ThroughputResult Run(
         LockStrategyDefinition strategyDefinition,
         WorkDefinition workDefinition,
         BenchmarkOptions options,
-        int readPermille)
+        int concurrentPermille)
     {
         ILockStrategy[] strategies = new ILockStrategy[options.LockInstances];
         IWork[] works = new IWork[options.LockInstances];
@@ -27,122 +30,115 @@ internal static class BenchmarkCaseRunner
                 works[lockIndex].Init();
             }
 
-            long totalReadWorks = 0;
-            long totalWriteWorks = 0;
-            long totalWriteLatencyTicks = 0;
-            long totalWriteLatencyCount = 0;
+            long totalConcurrent = 0;
+            long totalExclusive = 0;
+            long totalExclusiveTicks = 0;
             long checksum = 0;
             int threadsPerLock = options.Threads;
             int totalThreads = checked((int)options.TotalWorkerThreads);
 
             ThreadRunMeasurement measurement = DedicatedThreadHarness.Run(
                 totalThreads,
-                "LockBenchmark",
+                "Throughput",
                 globalWorkerIndex =>
                 {
                     int lockIndex = globalWorkerIndex / threadsPerLock;
                     int localWorkerIndex = globalWorkerIndex % threadsPerLock;
                     ILockStrategy strategy = strategies[lockIndex];
                     IWork work = works[lockIndex];
-
-                    uint random = CreateWorkerSeed(lockIndex, localWorkerIndex);
-                    long localReadWorks = 0;
-                    long localWriteWorks = 0;
-                    long localWriteLatencyTicks = 0;
+                    uint random = DeterministicRandom.CreateWorkerSeed(lockIndex, localWorkerIndex);
+                    long localConcurrent = 0;
+                    long localExclusive = 0;
+                    long localExclusiveTicks = 0;
                     long localChecksum = 0;
 
-                    try
+                    for (int operation = 0; operation < options.OperationsPerThread; operation++)
                     {
-                        for (int operation = 0; operation < options.OperationsPerThread; operation++)
+                        random = DeterministicRandom.Next(unchecked(random + (uint)operation));
+                        if (DeterministicRandom.IsConcurrent(random, concurrentPermille))
                         {
-                            random = NextRandom(random + (uint)operation);
-                            bool isRead = IsRead(random, readPermille);
-
-                            if (isRead)
-                            {
-                                localChecksum = unchecked(localChecksum + strategy.ExecuteRead(work));
-                                localReadWorks++;
-                            }
-                            else
-                            {
-                                long start = Stopwatch.GetTimestamp();
-                                localChecksum = unchecked(localChecksum + strategy.ExecuteWrite(work));
-                                localWriteLatencyTicks += Stopwatch.GetTimestamp() - start;
-                                localWriteWorks++;
-                            }
+                            localChecksum = unchecked(localChecksum + strategy.ExecuteConcurrent(work));
+                            localConcurrent++;
+                        }
+                        else
+                        {
+                            long start = Stopwatch.GetTimestamp();
+                            localChecksum = unchecked(localChecksum + strategy.ExecuteExclusive(work));
+                            localExclusiveTicks += Stopwatch.GetTimestamp() - start;
+                            localExclusive++;
                         }
                     }
-                    finally
-                    {
-                        Interlocked.Add(ref totalReadWorks, localReadWorks);
-                        Interlocked.Add(ref totalWriteWorks, localWriteWorks);
-                        Interlocked.Add(ref totalWriteLatencyTicks, localWriteLatencyTicks);
-                        Interlocked.Add(ref totalWriteLatencyCount, localWriteWorks);
-                        Interlocked.Add(ref checksum, localChecksum);
-                    }
+
+                    Interlocked.Add(ref totalConcurrent, localConcurrent);
+                    Interlocked.Add(ref totalExclusive, localExclusive);
+                    Interlocked.Add(ref totalExclusiveTicks, localExclusiveTicks);
+                    Interlocked.Add(ref checksum, localChecksum);
                 });
 
-            double cpuPercent = measurement.CpuTime.TotalSeconds /
-                                Math.Max(0.001, measurement.Elapsed.TotalSeconds) /
-                                Environment.ProcessorCount * 100.0;
-
-            return new BenchmarkResult(
-                strategies[0].Name,
+            return new ThroughputResult(
+                strategyDefinition.Name,
                 measurement.Elapsed,
-                cpuPercent,
-                totalReadWorks,
-                totalWriteWorks,
+                MeasurementMath.CpuPercent(measurement.CpuTime, measurement.Elapsed),
+                totalConcurrent,
+                totalExclusive,
                 CombineStateHashes(works),
-                totalWriteLatencyTicks,
-                totalWriteLatencyCount,
+                totalExclusiveTicks,
                 checksum);
         }
         finally
         {
-            for (int lockIndex = works.Length - 1; lockIndex >= 0; lockIndex--)
+            for (int i = works.Length - 1; i >= 0; i--)
             {
-                works[lockIndex]?.Dispose();
-                strategies[lockIndex]?.Dispose();
+                works[i]?.Dispose();
+                strategies[i]?.Dispose();
             }
         }
     }
 
-    private static bool IsRead(uint random, int readPermille)
+    internal static long CombineStateHashes(IWork[] works)
     {
-        return readPermille == 1_000 ||
-               (readPermille != 0 && random % 1_000 < readPermille);
-    }
-
-    private static long CombineStateHashes(IWork[] works)
-    {
-        if (works.Length == 1)
-        {
-            return works[0].StateHash;
-        }
-
+        if (works.Length == 1) return works[0].StateHash;
         unchecked
         {
             ulong combined = 0x6A09E667F3BCC909UL;
-            for (int lockIndex = 0; lockIndex < works.Length; lockIndex++)
+            for (int i = 0; i < works.Length; i++)
             {
-                ulong state = (ulong)works[lockIndex].StateHash;
+                ulong state = (ulong)works[i].StateHash;
                 combined ^= state + 0x9E3779B97F4A7C15UL + (combined << 6) + (combined >> 2);
-                combined ^= (uint)lockIndex;
+                combined ^= (uint)i;
             }
-
             return (long)combined;
         }
     }
+}
 
-    private static uint NextRandom(uint value)
+/// <summary>Deterministic operation-mix generator used by throughput and acquisition-latency modes.</summary>
+/// <remarks>
+/// Porting contract:
+/// - One independent 32-bit stream is derived from (lockIndex, localWorkerIndex).
+/// - The stream uses xorshift32 with unsigned 32-bit wraparound.
+/// - Before each xorshift step, the zero-based operation index is added modulo 2^32.
+/// - Concurrent selection is value % 1000 &lt; concurrentPermille, with explicit 0/1000 fast paths.
+/// Preserve this sequence so every compared strategy receives the same operation type at every
+/// worker/operation coordinate. This generator is unrelated to PortableRandom semantic stress.
+/// </remarks>
+internal static class DeterministicRandom
+{
+    public static bool IsConcurrent(uint random, int concurrentPermille) =>
+        concurrentPermille == 1_000 || (concurrentPermille != 0 && random % 1_000 < concurrentPermille);
+
+    public static uint Next(uint value)
     {
-        value ^= value << 13;
-        value ^= value >> 17;
-        value ^= value << 5;
-        return value;
+        unchecked
+        {
+            value ^= value << 13;
+            value ^= value >> 17;
+            value ^= value << 5;
+            return value;
+        }
     }
 
-    private static uint CreateWorkerSeed(int lockIndex, int localWorkerIndex)
+    public static uint CreateWorkerSeed(int lockIndex, int localWorkerIndex)
     {
         unchecked
         {

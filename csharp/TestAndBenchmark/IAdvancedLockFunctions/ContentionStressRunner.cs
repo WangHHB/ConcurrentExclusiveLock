@@ -5,7 +5,7 @@ using IntomicLib;
 
 namespace LockBenchmark;
 
-/// <summary>持续轰击单锁并高频采样诊断用 Contention，不参与锁横向性能排名。</summary>
+/// <summary>Continuously pressures one CEL instance and samples diagnostic Contention; this mode is not a cross-lock performance comparison.</summary>
 internal static class ContentionStressRunner
 {
     public static int Run(TimeSpan duration, int workerCount)
@@ -17,11 +17,11 @@ internal static class ContentionStressRunner
         int stop = 0;
         long operations = 0;
 
-        Console.WriteLine("Contention peak stress");
+        Console.WriteLine("Contention diagnostic");
         Console.WriteLine(
             $"duration={duration:c}, dedicated-workers={workerCount:n0}, single-lock, " +
             "mix=75% Concurrent / 25% Exclusive");
-        Console.WriteLine("Contention is sampled as a weak diagnostic value, not a waiter count.");
+        Console.WriteLine("Contention=diagnostic snapshot, not waiter count");
         Console.WriteLine();
 
         GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
@@ -101,7 +101,7 @@ internal static class ContentionStressRunner
             Volatile.Write(ref stop, 1);
             TimeSpan joinTimeout = TimeSpan.FromSeconds(
                 Math.Clamp(duration.TotalSeconds + 30.0, 60.0, 600.0));
-            threads.JoinAll("Contention peak stress", joinTimeout);
+            threads.JoinAll("Contention diagnostic", joinTimeout);
             stopwatch.Stop();
             process.Refresh();
             TimeSpan cpuElapsed = process.TotalProcessorTime - cpuStart;

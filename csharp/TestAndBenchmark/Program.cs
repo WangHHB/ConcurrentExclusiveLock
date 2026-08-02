@@ -1,8 +1,3 @@
-using IntomicLib;
-using System;
-using System.Threading;
-using System.Threading.Tasks;
-
 namespace LockBenchmark;
 
 internal static class Program
@@ -16,8 +11,8 @@ internal static class Program
         }
         catch (Exception exception)
         {
-            Console.WriteLine(exception.Message);
-            UsagePrinter.Print();
+            Console.Error.WriteLine(exception.Message);
+            Console.Error.WriteLine("Use --help for usage.");
             return 1;
         }
 
@@ -27,81 +22,43 @@ internal static class Program
             return 0;
         }
 
-        BenchmarkReporter.PrintEnvironment();
-        if (options.UpgradeContentionConcurrentThreads.HasValue)
+        try
         {
-            return UpgradeContentionRunner.Run(
-                options.UpgradeContentionConcurrentThreads.Value,
-                options.UpgradeContentionExclusiveThreads);
+            using BenchmarkSession session = new(options);
+            session.WriteHeader();
+            return options.Mode switch
+            {
+                ExecutionMode.Throughput => BenchmarkRunner.Run(options, session),
+                ExecutionMode.AcquisitionLatency => AcquisitionLatencyRunner.Run(options, session),
+                ExecutionMode.ExclusiveProgress => ExclusiveProgressRunner.Run(options, session),
+                ExecutionMode.PipelinePerformance => PipelinePerformanceRunner.Run(options, session),
+                ExecutionMode.UpgradeContention => UpgradeContentionRunner.Run(options, session),
+                ExecutionMode.Correctness => CombinedCorrectnessRunner.Run(options, session),
+                ExecutionMode.PipelineStress => PipelineSemanticStressRunner.Run(
+                    options.PipelineStressDuration!.Value,
+                    options.LockInstances,
+                    options.SemanticWorkersPerLock,
+                    options.SemanticOperationsPerLock,
+                    options.SemanticSeed,
+                    options.PipelineExceptionPermille),
+                ExecutionMode.Endurance => EnduranceSemanticRunner.Run(
+                    options.EnduranceDuration!.Value,
+                    options.LockInstances,
+                    options.SemanticWorkersPerLock,
+                    options.SemanticOperationsPerLock,
+                    options.SemanticSeed),
+                ExecutionMode.ContentionDiagnostic => ContentionStressRunner.Run(
+                    options.ContentionDiagnosticDuration!.Value,
+                    options.Threads),
+                _ => throw new ArgumentOutOfRangeException()
+            };
         }
-
-        if (options.ContentionStressDuration.HasValue)
+        catch (Exception exception)
         {
-            return ContentionStressRunner.Run(
-                options.ContentionStressDuration.Value,
-                options.Threads);
+            Console.Error.WriteLine();
+            Console.Error.WriteLine($"[FATAL] {exception.GetType().Name}: {exception.Message}");
+            Console.Error.WriteLine(exception.StackTrace);
+            return 4;
         }
-
-        if (options.EnduranceDuration.HasValue)
-        {
-            return EnduranceSemanticRunner.Run(options.EnduranceDuration.Value);
-        }
-
-        if (options.FullSemanticStressDuration.HasValue)
-        {
-            return FullSemanticStressRunner.Run(
-                options.FullSemanticStressDuration.Value,
-                options.LockInstances,
-                options.SemanticWorkersPerLock,
-                options.SemanticOperationsPerLock,
-                options.SemanticSeed);
-        }
-
-        if (options.PipelineStressDuration.HasValue)
-        {
-            return PipelineSemanticStressRunner.Run(
-                options.PipelineStressDuration.Value,
-                options.LockInstances,
-                options.SemanticWorkersPerLock,
-                options.SemanticOperationsPerLock,
-                options.SemanticSeed);
-        }
-
-        if (options.RunFullSemantics)
-        {
-            return FullSemanticCorrectnessRunner.Run(
-                options.LockInstances,
-                options.SemanticWorkersPerLock,
-                options.SemanticOperationsPerLock,
-                options.SemanticSeed);
-        }
-
-        if (options.RunPipelineSemantics)
-        {
-            return PipelineSemanticCorrectnessRunner.Run(
-                options.LockInstances,
-                options.SemanticWorkersPerLock,
-                options.SemanticOperationsPerLock,
-                options.SemanticSeed);
-        }
-
-        if (options.RunAdvancedPerformance)
-        {
-            return AdvancedLockPerformanceRunner.Run(
-                options.Threads,
-                options.OperationsPerThread,
-                options.ReadSteps);
-        }
-
-        if (options.RunAdvancedCorrectness)
-        {
-            return AdvancedLockCorrectnessRunner.Run(
-                options.LockInstances,
-                options.AdvancedOperationsPerLock,
-                options.AdvancedSeed);
-        }
-
-        BenchmarkRunner.Run(options);
-        return 0;
     }
 }

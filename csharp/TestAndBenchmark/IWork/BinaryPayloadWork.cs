@@ -5,8 +5,8 @@ using System.Threading;
 namespace LockBenchmark;
 
 /// <summary>
-/// 实际业务模拟：共享二进制消息/网络帧存储。
-/// 读路径解析定长协议头并抽样载荷；写路径更新标志、版本、金额和载荷字段。
+/// Business-shaped shared binary-message/network-frame workload.
+/// Concurrent paths parse fixed headers and sample payload; Exclusive paths update flags, version, amount, and payload fields.
 /// </summary>
 internal sealed class BinaryPayloadWork : IWork
 {
@@ -15,8 +15,8 @@ internal sealed class BinaryPayloadWork : IWork
     private readonly int readSteps;
     private readonly int writeSteps;
     private readonly int frameCount;
-    private byte[] frames;
-    private ThreadLocal<uint> readRandom;
+    private byte[] frames = null!;
+    private ThreadLocal<uint> readRandom = null!;
     private int readerSeed;
     private uint writeRandom;
     private long state;
@@ -29,11 +29,6 @@ internal sealed class BinaryPayloadWork : IWork
     }
 
     public long StateHash => Volatile.Read(ref state);
-
-    public static int GetFrameCount(int scale)
-    {
-        return Math.Clamp(scale / 8, 1_024, 16_384);
-    }
 
     public void Init()
     {
@@ -64,7 +59,7 @@ internal sealed class BinaryPayloadWork : IWork
 
     public long TickRead()
     {
-        // 模拟协议解析：读取消息头、执行业务条件判断，并访问分散的载荷字段。
+        // Protocol parsing: read headers, evaluate business conditions, and sample dispersed payload fields.
         long result = Volatile.Read(ref state);
         uint random = readRandom.Value;
 
@@ -91,7 +86,7 @@ internal sealed class BinaryPayloadWork : IWork
 
     public long TickWrite()
     {
-        // 模拟消息状态推进：解析旧值后原位写回多个头字段及载荷字节。
+        // Message-state advance: parse the old value and update multiple header/payload fields in place.
         long result = state + 1;
         uint random = writeRandom;
 

@@ -1,390 +1,355 @@
 using IntomicLib;
-using System;
 using System.Diagnostics;
 using System.Runtime.ExceptionServices;
 using System.Threading;
 
 namespace LockBenchmark;
 
-/// <summary>
-/// Reproduces the strongest single-lock upgrade contention window:
-/// N threads first hold Concurrent together, M ordinary Exclusive requests then enter contention,
-/// and all N Concurrent holders are released to upgrade to Exclusive at the same instant.
-/// </summary>
+/// <summary>CEL-specific simultaneous in-place upgrade contention experiment.</summary>
+/// <remarks>
+/// Porting contract for each lock group:
+/// 1. N workers acquire Concurrent and wait at the upgrade gate.
+/// 2. M ordinary Exclusive contenders become ready.
+/// 3. All lock groups are released from one global gate.
+/// 4. Ordinary Exclusive must not enter before its own N-upgrader chain has drained.
+/// Acquisition/release samples and drain times are recorded both globally and per lock. N and M
+/// are literal per-lock populations; M may be zero. Platform RW-locks are not included because they
+/// do not expose CEL's undeclared direct in-place upgrade semantics.
+/// </remarks>
 internal static class UpgradeContentionRunner
 {
     private static readonly TimeSpan PhaseTimeout = TimeSpan.FromMinutes(2);
 
-    public static int Run(int concurrentThreads, int ordinaryExclusiveThreads)
+    private sealed record UpgradeGroupRawResult(
+        int LockIndex,
+        TimeSpan FirstUpgrade,
+        TimeSpan Drain,
+        long[] UpgradeAcquireTicks,
+        long[] UpgradeReleaseTicks,
+        long[] OrdinaryAcquireTicks,
+        int OrdinaryEnteredBeforeUpgradeDrain);
+
+    public static int Run(BenchmarkOptions options, BenchmarkSession session)
     {
-        if (concurrentThreads < 1)
-        {
-            throw new ArgumentOutOfRangeException(nameof(concurrentThreads));
-        }
+        int concurrentThreadsPerLock = options.UpgradeContentionConcurrentThreads!.Value;
+        int ordinaryThreadsPerLock = options.UpgradeContentionExclusiveThreads;
+        long totalUpgradeThreads = checked((long)options.LockInstances * concurrentThreadsPerLock);
+        long totalOrdinaryThreads = checked((long)options.LockInstances * ordinaryThreadsPerLock);
 
-        if (ordinaryExclusiveThreads < 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(ordinaryExclusiveThreads));
-        }
+        Console.WriteLine("Concurrent-to-Exclusive upgrade contention");
+        Console.WriteLine(
+            $"lock-instances={options.LockInstances:n0}, upgrade-threads/lock={concurrentThreadsPerLock:n0}, " +
+            $"ordinary-exclusive/lock={ordinaryThreadsPerLock:n0}, total-upgrade-threads={totalUpgradeThreads:n0}, " +
+            $"total-ordinary-exclusive={totalOrdinaryThreads:n0}");
+        Console.WriteLine();
 
-        ConcurrentExclusiveLock cel = ConcurrentExclusiveLock.Create();
+        _ = RunOne(lockInstances: 1, concurrentThreadsPerLock: 1, ordinaryThreadsPerLock: 1);
+
+        Console.WriteLine(
+            $"  {"first",11}  {"drain",11}  {"upgrades/s",12}  {"acq p50",11} {"acq p95",11} " +
+            $"{"acq p99",11} {"acq max",11}  {"worst-lock p99",15} {"worst drain",12} {"ordinary-before",15}");
+
+        UpgradeContentionResult result = RunOne(options.LockInstances, concurrentThreadsPerLock, ordinaryThreadsPerLock);
+        Console.WriteLine(
+            $"  {BenchmarkReporter.FormatDuration(result.FirstUpgrade),11}  {BenchmarkReporter.FormatDuration(result.Drain),11}  " +
+            $"{result.UpgradeThroughput,12:0}  {BenchmarkReporter.FormatLatency(result.UpgradeAcquireLatency.P50Ns),11} " +
+            $"{BenchmarkReporter.FormatLatency(result.UpgradeAcquireLatency.P95Ns),11} {BenchmarkReporter.FormatLatency(result.UpgradeAcquireLatency.P99Ns),11} " +
+            $"{BenchmarkReporter.FormatLatency(result.UpgradeAcquireLatency.MaxNs),11}  " +
+            $"{BenchmarkReporter.FormatLatency(result.WorstLockAcquireP99Ns),15} " +
+            $"{BenchmarkReporter.FormatLatency(result.WorstLockDrainNs),12} {result.OrdinaryEnteredBeforeUpgradeDrain,15:n0}");
+
+        session.Write("upgrade-contention", new
+        {
+            options.LockInstances,
+            upgradeThreadsPerLock = concurrentThreadsPerLock,
+            ordinaryExclusiveThreadsPerLock = ordinaryThreadsPerLock,
+            totalUpgradeThreads,
+            totalOrdinaryExclusiveThreads = totalOrdinaryThreads,
+            firstUpgradeMicroseconds = result.FirstUpgrade.TotalMicroseconds,
+            drainMicroseconds = result.Drain.TotalMicroseconds,
+            result.UpgradeThroughput,
+            result.UpgradeAcquireLatency,
+            result.UpgradeReleaseLatency,
+            result.OrdinaryAcquireLatency,
+            result.WorstLockAcquireP99Ns,
+            result.WorstLockDrainNs,
+            result.OrdinaryEnteredBeforeUpgradeDrain,
+            perLock = result.PerLock
+        });
+
+        Console.WriteLine();
+        Console.WriteLine(
+            $"[PASS] {options.LockInstances:n0} lock instance(s); " +
+            "no ordinary Exclusive request entered before its own upgrade chain drained.");
+        return 0;
+    }
+
+    private static UpgradeContentionResult RunOne(
+        int lockInstances,
+        int concurrentThreadsPerLock,
+        int ordinaryThreadsPerLock)
+    {
+        UpgradeGroupRawResult?[] rawResults = new UpgradeGroupRawResult?[lockInstances];
+        Thread[] controllers = new Thread[lockInstances];
         ExceptionDispatchInfo? firstFailure = null;
+        using CountdownEvent groupsReady = new(lockInstances);
+        using ManualResetEventSlim releaseAllGroups = new(false);
+
+        void Capture(Exception exception) =>
+            Interlocked.CompareExchange(ref firstFailure, ExceptionDispatchInfo.Capture(exception), null);
+
+        for (int lockIndex = 0; lockIndex < lockInstances; lockIndex++)
+        {
+            int capturedLockIndex = lockIndex;
+            controllers[lockIndex] = new Thread(() =>
+            {
+                bool readySignaled = false;
+                try
+                {
+                    rawResults[capturedLockIndex] = RunGroup(
+                        capturedLockIndex,
+                        concurrentThreadsPerLock,
+                        ordinaryThreadsPerLock,
+                        () =>
+                        {
+                            groupsReady.Signal();
+                            readySignaled = true;
+                        },
+                        releaseAllGroups,
+                        Capture,
+                        ref firstFailure);
+                }
+                catch (Exception exception)
+                {
+                    Capture(exception);
+                }
+                finally
+                {
+                    if (!readySignaled) groupsReady.Signal();
+                }
+            })
+            {
+                IsBackground = true,
+                Name = $"UpgradeContention-Controller-L{lockIndex}"
+            };
+            controllers[lockIndex].Start();
+        }
+
+        if (!groupsReady.Wait(PhaseTimeout))
+        {
+            releaseAllGroups.Set();
+            throw new TimeoutException("Upgrade contention groups did not become ready.");
+        }
+
+        releaseAllGroups.Set();
+        foreach (Thread controller in controllers)
+        {
+            if (!controller.Join(PhaseTimeout))
+            {
+                throw new TimeoutException($"Upgrade contention controller did not terminate: {controller.Name}.");
+            }
+        }
+        firstFailure?.Throw();
+
+        UpgradeGroupRawResult[] groups = rawResults
+            .Select((result, index) => result ?? throw new InvalidOperationException($"Missing result for lock instance {index}."))
+            .ToArray();
+
+        UpgradeContentionPerLockResult[] perLock = groups.Select(group => new UpgradeContentionPerLockResult(
+            group.LockIndex,
+            group.FirstUpgrade,
+            group.Drain,
+            Statistics.SummarizeTicks(group.UpgradeAcquireTicks),
+            Statistics.SummarizeTicks(group.UpgradeReleaseTicks),
+            Statistics.SummarizeTicks(group.OrdinaryAcquireTicks),
+            group.OrdinaryEnteredBeforeUpgradeDrain)).ToArray();
+
+        return new UpgradeContentionResult(
+            lockInstances,
+            concurrentThreadsPerLock,
+            ordinaryThreadsPerLock,
+            perLock.Min(result => result.FirstUpgrade),
+            perLock.Max(result => result.Drain),
+            Statistics.SummarizeTicks(groups.SelectMany(group => group.UpgradeAcquireTicks)),
+            Statistics.SummarizeTicks(groups.SelectMany(group => group.UpgradeReleaseTicks)),
+            Statistics.SummarizeTicks(groups.SelectMany(group => group.OrdinaryAcquireTicks)),
+            perLock.Sum(result => result.OrdinaryEnteredBeforeUpgradeDrain),
+            perLock);
+    }
+
+    private static UpgradeGroupRawResult RunGroup(
+        int lockIndex,
+        int concurrentThreads,
+        int ordinaryThreads,
+        Action signalGroupReady,
+        ManualResetEventSlim releaseAllGroups,
+        Action<Exception> capture,
+        ref ExceptionDispatchInfo? sharedFailure)
+    {
+        ConcurrentExclusiveLock cel = ConcurrentExclusiveLock.Create();
         int abort = 0;
         int activeExclusive = 0;
         int completedUpgrades = 0;
         int remainingUpgrades = concurrentThreads;
-        int upgradeDrainReleased = 0;
-        int completedOrdinaryExclusive = 0;
-        int ordinaryEnteredBeforeUpgradeDrain = 0;
-        long firstUpgradeAcquiredTimestamp = long.MaxValue;
-        long lastUpgradeReleasedTimestamp = 0;
+        int upgradeDrainPublished = 0;
+        int completedOrdinary = 0;
+        int ordinaryEnteredBeforeDrain = 0;
+        long startTimestamp = 0;
+        long[] upgradeAcquire = new long[concurrentThreads];
+        long[] upgradeRelease = new long[concurrentThreads];
+        long[] ordinaryAcquire = new long[ordinaryThreads];
 
-        using CountdownEvent concurrentEntered = new CountdownEvent(concurrentThreads);
-        using CountdownEvent ordinaryReady = new CountdownEvent(ordinaryExclusiveThreads);
-        using ManualResetEventSlim ordinaryStartGate = new ManualResetEventSlim(false);
-        using ManualResetEventSlim upgradeStartGate = new ManualResetEventSlim(false);
-        using ManualResetEventSlim upgradeDrainCompleted = new ManualResetEventSlim(false);
+        using CountdownEvent concurrentEntered = new(concurrentThreads);
+        using CountdownEvent ordinaryReady = new(ordinaryThreads);
+        using ManualResetEventSlim ordinaryStart = new(false);
+        using ManualResetEventSlim upgradeStart = new(false);
+        using ManualResetEventSlim upgradesCompleted = new(false);
+        Thread[] upgrades = new Thread[concurrentThreads];
+        Thread[] ordinary = new Thread[ordinaryThreads];
 
-        Thread[] upgradeWorkers = new Thread[concurrentThreads];
-        Thread[] ordinaryWorkers = new Thread[ordinaryExclusiveThreads];
-
-        void CaptureFailure(Exception exception)
+        for (int i = 0; i < upgrades.Length; i++)
         {
-            Interlocked.CompareExchange(
-                ref firstFailure,
-                ExceptionDispatchInfo.Capture(exception),
-                null);
-        }
-
-        for (int workerIndex = 0; workerIndex < upgradeWorkers.Length; workerIndex++)
-        {
-            int capturedWorkerIndex = workerIndex;
-            upgradeWorkers[workerIndex] = new Thread(() =>
+            int index = i;
+            upgrades[i] = new Thread(() =>
             {
-                bool holdsConcurrent = false;
-                bool holdsExclusive = false;
+                bool concurrent = false;
+                bool exclusive = false;
                 try
                 {
                     cel.AcquireConcurrent();
-                    holdsConcurrent = true;
+                    concurrent = true;
                     concurrentEntered.Signal();
-
-                    upgradeStartGate.Wait();
-                    if (Volatile.Read(ref abort) != 0)
-                    {
-                        return;
-                    }
-
+                    upgradeStart.Wait();
+                    if (Volatile.Read(ref abort) != 0) return;
                     cel.ConcurrentToExclusive();
-                    holdsConcurrent = false;
-                    holdsExclusive = true;
-
-                    long acquiredTimestamp = Stopwatch.GetTimestamp();
-                    SetMinimum(ref firstUpgradeAcquiredTimestamp, acquiredTimestamp);
-
-                    int exclusiveCount = Interlocked.Increment(ref activeExclusive);
-                    if (exclusiveCount != 1)
-                    {
-                        throw new InvalidOperationException(
-                            $"Exclusive isolation failed in upgrade worker {capturedWorkerIndex}: active={exclusiveCount}.");
-                    }
-
-                    // Keep the Exclusive region deliberately minimal. The measured interval is primarily
-                    // the protocol's ability to serialize and drain all simultaneous upgrade requests.
+                    concurrent = false;
+                    exclusive = true;
+                    long acquired = Stopwatch.GetTimestamp();
+                    upgradeAcquire[index] = acquired - Volatile.Read(ref startTimestamp);
+                    if (Interlocked.Increment(ref activeExclusive) != 1) throw new InvalidOperationException("Exclusive isolation failed during upgrade.");
                     Thread.SpinWait(1);
-
-                    if (Interlocked.Decrement(ref activeExclusive) != 0)
-                    {
-                        throw new InvalidOperationException(
-                            $"Exclusive activity counter failed to return to zero in upgrade worker {capturedWorkerIndex}.");
-                    }
-
-                    if (Interlocked.Decrement(ref remainingUpgrades) == 0)
-                    {
-                        // Publish before the last ReleaseExclusive. Ordinary Exclusive cannot enter
-                        // until that release completes, so it cannot observe a stale "not drained" state.
-                        Volatile.Write(ref upgradeDrainReleased, 1);
-                    }
-
+                    if (Interlocked.Decrement(ref activeExclusive) != 0) throw new InvalidOperationException("Exclusive counter failed during upgrade.");
+                    if (Interlocked.Decrement(ref remainingUpgrades) == 0) Volatile.Write(ref upgradeDrainPublished, 1);
                     cel.ReleaseExclusive();
-                    holdsExclusive = false;
-
-                    long releasedTimestamp = Stopwatch.GetTimestamp();
-                    SetMaximum(ref lastUpgradeReleasedTimestamp, releasedTimestamp);
-                    if (Interlocked.Increment(ref completedUpgrades) == concurrentThreads)
-                    {
-                        upgradeDrainCompleted.Set();
-                    }
+                    exclusive = false;
+                    upgradeRelease[index] = Stopwatch.GetTimestamp() - Volatile.Read(ref startTimestamp);
+                    if (Interlocked.Increment(ref completedUpgrades) == concurrentThreads) upgradesCompleted.Set();
                 }
                 catch (Exception exception)
                 {
-                    CaptureFailure(exception);
-                    upgradeDrainCompleted.Set();
+                    capture(exception);
+                    upgradesCompleted.Set();
                 }
                 finally
                 {
                     try
                     {
-                        if (holdsExclusive)
-                        {
-                            if (Volatile.Read(ref activeExclusive) > 0)
-                            {
-                                Interlocked.Decrement(ref activeExclusive);
-                            }
-
-                            cel.ReleaseExclusive();
-                        }
-                        else if (holdsConcurrent)
-                        {
-                            cel.ReleaseConcurrent();
-                        }
+                        if (exclusive) cel.ReleaseExclusive();
+                        else if (concurrent) cel.ReleaseConcurrent();
                     }
-                    catch (Exception exception)
-                    {
-                        CaptureFailure(exception);
-                    }
+                    catch (Exception exception) { capture(exception); }
                 }
             })
             {
                 IsBackground = true,
-                Name = $"CEL-Upgrade-{capturedWorkerIndex}"
+                Name = $"Upgrade-L{lockIndex}-W{index}"
             };
-            upgradeWorkers[workerIndex].Start();
+            upgrades[i].Start();
         }
 
-        if (!concurrentEntered.Wait(PhaseTimeout))
-        {
-            Volatile.Write(ref abort, 1);
-            upgradeStartGate.Set();
-            Console.WriteLine(
-                $"[FAIL] Concurrent entry timed out: entered={concurrentThreads - concurrentEntered.CurrentCount:n0}/{concurrentThreads:n0}.");
-            return 1;
-        }
+        if (!concurrentEntered.Wait(PhaseTimeout)) throw new TimeoutException($"Concurrent holders did not enter for lock {lockIndex}.");
 
-        for (int workerIndex = 0; workerIndex < ordinaryWorkers.Length; workerIndex++)
+        for (int i = 0; i < ordinary.Length; i++)
         {
-            int capturedWorkerIndex = workerIndex;
-            ordinaryWorkers[workerIndex] = new Thread(() =>
+            int index = i;
+            ordinary[i] = new Thread(() =>
             {
-                bool holdsExclusive = false;
+                bool exclusive = false;
                 try
                 {
                     ordinaryReady.Signal();
-                    ordinaryStartGate.Wait();
-                    if (Volatile.Read(ref abort) != 0)
-                    {
-                        return;
-                    }
-
+                    ordinaryStart.Wait();
+                    if (Volatile.Read(ref abort) != 0) return;
+                    long before = Stopwatch.GetTimestamp();
                     cel.AcquireExclusive();
-                    holdsExclusive = true;
-
-                    if (Volatile.Read(ref upgradeDrainReleased) == 0)
-                    {
-                        Interlocked.Increment(ref ordinaryEnteredBeforeUpgradeDrain);
-                    }
-
-                    int exclusiveCount = Interlocked.Increment(ref activeExclusive);
-                    if (exclusiveCount != 1)
-                    {
-                        throw new InvalidOperationException(
-                            $"Exclusive isolation failed in ordinary worker {capturedWorkerIndex}: active={exclusiveCount}.");
-                    }
-
+                    ordinaryAcquire[index] = Stopwatch.GetTimestamp() - before;
+                    exclusive = true;
+                    if (Volatile.Read(ref upgradeDrainPublished) == 0) Interlocked.Increment(ref ordinaryEnteredBeforeDrain);
+                    if (Interlocked.Increment(ref activeExclusive) != 1) throw new InvalidOperationException("Exclusive isolation failed for ordinary contender.");
                     Thread.SpinWait(1);
-
-                    if (Interlocked.Decrement(ref activeExclusive) != 0)
-                    {
-                        throw new InvalidOperationException(
-                            $"Exclusive activity counter failed to return to zero in ordinary worker {capturedWorkerIndex}.");
-                    }
-
+                    if (Interlocked.Decrement(ref activeExclusive) != 0) throw new InvalidOperationException("Exclusive counter failed for ordinary contender.");
                     cel.ReleaseExclusive();
-                    holdsExclusive = false;
-                    Interlocked.Increment(ref completedOrdinaryExclusive);
+                    exclusive = false;
+                    Interlocked.Increment(ref completedOrdinary);
                 }
-                catch (Exception exception)
-                {
-                    CaptureFailure(exception);
-                }
+                catch (Exception exception) { capture(exception); }
                 finally
                 {
-                    try
-                    {
-                        if (holdsExclusive)
-                        {
-                            if (Volatile.Read(ref activeExclusive) > 0)
-                            {
-                                Interlocked.Decrement(ref activeExclusive);
-                            }
-
-                            cel.ReleaseExclusive();
-                        }
-                    }
-                    catch (Exception exception)
-                    {
-                        CaptureFailure(exception);
-                    }
+                    try { if (exclusive) cel.ReleaseExclusive(); }
+                    catch (Exception exception) { capture(exception); }
                 }
             })
             {
                 IsBackground = true,
-                Name = $"CEL-OrdinaryExclusive-{capturedWorkerIndex}"
+                Name = $"OrdinaryExclusive-L{lockIndex}-W{index}"
             };
-            ordinaryWorkers[workerIndex].Start();
+            ordinary[i].Start();
         }
 
-        if (!ordinaryReady.Wait(PhaseTimeout))
+        if (!ordinaryReady.Wait(PhaseTimeout)) throw new TimeoutException($"Ordinary Exclusive contenders did not become ready for lock {lockIndex}.");
+        ordinaryStart.Set();
+        if (ordinaryThreads > 0)
         {
-            Volatile.Write(ref abort, 1);
-            ordinaryStartGate.Set();
-            upgradeStartGate.Set();
-            Console.WriteLine(
-                $"[FAIL] Ordinary Exclusive readiness timed out: ready={ordinaryExclusiveThreads - ordinaryReady.CurrentCount:n0}/{ordinaryExclusiveThreads:n0}.");
-            return 1;
-        }
-
-        if (ordinaryExclusiveThreads > 0)
-        {
-            ordinaryStartGate.Set();
-
-            Stopwatch pressureWait = Stopwatch.StartNew();
+            Stopwatch pressure = Stopwatch.StartNew();
             while (cel.ObservedContention < concurrentThreads + 1)
             {
-                firstFailure?.Throw();
-                if (pressureWait.Elapsed >= PhaseTimeout)
+                Volatile.Read(ref sharedFailure)?.Throw();
+                if (pressure.Elapsed >= PhaseTimeout)
                 {
-                    Volatile.Write(ref abort, 1);
-                    upgradeStartGate.Set();
-                    Console.WriteLine(
-                        $"[FAIL] Ordinary Exclusive did not establish the preemptive contention window within {PhaseTimeout}.");
-                    return 1;
+                    throw new TimeoutException($"Ordinary Exclusive pressure did not become observable for lock {lockIndex}.");
                 }
-
                 Thread.Yield();
             }
         }
-        else
-        {
-            ordinaryStartGate.Set();
-        }
 
-        long upgradeStartTimestamp = Stopwatch.GetTimestamp();
-        upgradeStartGate.Set();
+        signalGroupReady();
+        releaseAllGroups.Wait();
+        Volatile.Write(ref startTimestamp, Stopwatch.GetTimestamp());
+        upgradeStart.Set();
 
-        if (!upgradeDrainCompleted.Wait(PhaseTimeout))
+        if (!upgradesCompleted.Wait(PhaseTimeout))
         {
             Volatile.Write(ref abort, 1);
-            Console.WriteLine(
-                $"[FAIL] Upgrade drain timed out after {PhaseTimeout}: completed={Volatile.Read(ref completedUpgrades):n0}/{concurrentThreads:n0}, " +
-                $"ordinary-completed={Volatile.Read(ref completedOrdinaryExclusive):n0}/{ordinaryExclusiveThreads:n0}, " +
-                $"state={cel.ObservedState}, contention={cel.ObservedContention:n0}.");
-            return 1;
+            throw new TimeoutException($"Upgrade drain timed out for lock {lockIndex}: completed={completedUpgrades:n0}/{concurrentThreads:n0}.");
         }
+        Volatile.Read(ref sharedFailure)?.Throw();
 
-        firstFailure?.Throw();
-
-        long lastRelease = Volatile.Read(ref lastUpgradeReleasedTimestamp);
-        long firstAcquire = Volatile.Read(ref firstUpgradeAcquiredTimestamp);
-        TimeSpan firstAcquireElapsed = Stopwatch.GetElapsedTime(upgradeStartTimestamp, firstAcquire);
-        TimeSpan allUpgradesElapsed = Stopwatch.GetElapsedTime(upgradeStartTimestamp, lastRelease);
-
-        foreach (Thread worker in upgradeWorkers)
+        foreach (Thread thread in upgrades)
         {
-            if (!worker.Join(PhaseTimeout))
-            {
-                Console.WriteLine($"[FAIL] Upgrade worker did not terminate: {worker.Name}.");
-                return 1;
-            }
+            if (!thread.Join(PhaseTimeout)) throw new TimeoutException($"Upgrade thread did not terminate: {thread.Name}.");
         }
-
-        foreach (Thread worker in ordinaryWorkers)
+        foreach (Thread thread in ordinary)
         {
-            if (!worker.Join(PhaseTimeout))
-            {
-                Console.WriteLine($"[FAIL] Ordinary Exclusive worker did not terminate: {worker.Name}.");
-                return 1;
-            }
+            if (!thread.Join(PhaseTimeout)) throw new TimeoutException($"Ordinary thread did not terminate: {thread.Name}.");
         }
+        Volatile.Read(ref sharedFailure)?.Throw();
 
-        firstFailure?.Throw();
-
-        if (completedUpgrades != concurrentThreads)
-        {
-            throw new InvalidOperationException(
-                $"Upgrade completion mismatch: expected={concurrentThreads:n0}, actual={completedUpgrades:n0}.");
-        }
-
-        if (completedOrdinaryExclusive != ordinaryExclusiveThreads)
-        {
-            throw new InvalidOperationException(
-                $"Ordinary Exclusive completion mismatch: expected={ordinaryExclusiveThreads:n0}, actual={completedOrdinaryExclusive:n0}.");
-        }
-
-        if (ordinaryEnteredBeforeUpgradeDrain != 0)
-        {
-            throw new InvalidOperationException(
-                $"Upgrade priority failed: {ordinaryEnteredBeforeUpgradeDrain:n0} ordinary Exclusive request(s) entered before all upgrades drained.");
-        }
-
+        if (completedUpgrades != concurrentThreads || completedOrdinary != ordinaryThreads)
+            throw new InvalidOperationException($"Contention completion count mismatch for lock {lockIndex}.");
+        if (ordinaryEnteredBeforeDrain != 0)
+            throw new InvalidOperationException($"Lock {lockIndex}: {ordinaryEnteredBeforeDrain} ordinary Exclusive request(s) entered before upgrade drain.");
         if (cel.ObservedState != ConcurrentExclusiveLockState.Idle || cel.ObservedContention != 0)
-        {
-            throw new InvalidOperationException(
-                $"Lock did not return to Idle: state={cel.ObservedState}, contention={cel.ObservedContention:n0}.");
-        }
+            throw new InvalidOperationException($"Lock {lockIndex} did not return to Idle: {cel.ObservedState}, contention={cel.ObservedContention}.");
 
-        Console.WriteLine();
-        Console.WriteLine("Concurrent-to-Exclusive upgrade contention:");
-        Console.WriteLine($"  Concurrent upgrade threads : {concurrentThreads:n0}");
-        Console.WriteLine($"  Ordinary Exclusive threads : {ordinaryExclusiveThreads:n0}");
-        Console.WriteLine($"  First upgrade acquired      : {FormatDuration(firstAcquireElapsed)}");
-        Console.WriteLine($"  All upgrades completed      : {FormatDuration(allUpgradesElapsed)}");
-        Console.WriteLine($"  Upgrade throughput          : {concurrentThreads / allUpgradesElapsed.TotalSeconds:n0} upgrades/s");
-        Console.WriteLine($"  Ordinary-before-drain       : {ordinaryEnteredBeforeUpgradeDrain:n0}");
-        Console.WriteLine($"  Final state                 : {cel.ObservedState}");
-        Console.WriteLine(
-            $"[PASS] all {concurrentThreads:n0} simultaneous upgrades completed in {FormatDuration(allUpgradesElapsed)} " +
-            $"with {ordinaryExclusiveThreads:n0} ordinary Exclusive contender(s).");
-        return 0;
-    }
-
-    private static string FormatDuration(TimeSpan duration)
-    {
-        if (duration.TotalMilliseconds >= 1)
-        {
-            return $"{duration.TotalMilliseconds:n3} ms";
-        }
-
-        return $"{duration.TotalMicroseconds:n3} us";
-    }
-
-    private static void SetMinimum(ref long location, long value)
-    {
-        long observed = Volatile.Read(ref location);
-        while (value < observed)
-        {
-            long previous = Interlocked.CompareExchange(ref location, value, observed);
-            if (previous == observed)
-            {
-                return;
-            }
-
-            observed = previous;
-        }
-    }
-
-    private static void SetMaximum(ref long location, long value)
-    {
-        long observed = Volatile.Read(ref location);
-        while (value > observed)
-        {
-            long previous = Interlocked.CompareExchange(ref location, value, observed);
-            if (previous == observed)
-            {
-                return;
-            }
-
-            observed = previous;
-        }
+        long first = upgradeAcquire.Min();
+        long drain = upgradeRelease.Max();
+        return new UpgradeGroupRawResult(
+            lockIndex,
+            Stopwatch.GetElapsedTime(0, first),
+            Stopwatch.GetElapsedTime(0, drain),
+            upgradeAcquire,
+            upgradeRelease,
+            ordinaryAcquire,
+            ordinaryEnteredBeforeDrain);
     }
 }

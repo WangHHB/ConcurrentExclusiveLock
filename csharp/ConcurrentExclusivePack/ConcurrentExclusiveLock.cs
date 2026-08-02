@@ -347,26 +347,22 @@ namespace IntomicLib
             counter = Volatile.Read(ref token.Counter);
             if (counter >= maxConcurrent)
             {
-                adjustTurn++;
-                if (adjustTurn == 1)
+                if (counter < Exclusive_Add * 2)
                 {
-                    if (counter < Exclusive_Add * 2)
+                    if (adjustTurn == 0)
                     {
+                        adjustTurn++;
                         Monitor.Enter(token);
                         Monitor.Exit(token);
                     }
                     else
                     {
+                        adjustTurn = 0;
                         Thread.Yield();
                     }
                 }
-                else if (adjustTurn < 33)
-                {
-                    Thread.Yield();
-                }
                 else
                 {
-                    adjustTurn = 1;
                     Thread.Sleep(5);
                 }
                 goto Redo;
@@ -495,11 +491,11 @@ namespace IntomicLib
                 counter = Volatile.Read(ref token.Counter);
                 if (counter >= maxConcurrent)
                 {
-                    adjustTurn++;
-                    if (adjustTurn == 1)
+                    if (counter < Exclusive_Add * 2)
                     {
-                        if (counter < Exclusive_Add * 2)
+                        if (adjustTurn == 0)
                         {
+                            adjustTurn++;
                             if (Monitor.TryEnter(token, millisecondsTimeout - nowTick))
                             {
                                 Monitor.Exit(token);
@@ -511,16 +507,12 @@ namespace IntomicLib
                         }
                         else
                         {
+                            adjustTurn = 0;
                             Thread.Yield();
                         }
                     }
-                    else if (adjustTurn < 33)
-                    {
-                        Thread.Yield();
-                    }
                     else
                     {
-                        adjustTurn = 1;
                         Thread.Sleep(5);
                     }
                     nowTick = Environment.TickCount;

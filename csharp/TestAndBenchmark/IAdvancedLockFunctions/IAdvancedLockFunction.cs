@@ -1,37 +1,37 @@
 namespace LockBenchmark;
 
 /// <summary>
-/// 一次高级锁能力的完整调用协议。
+/// Complete call protocol for one advanced lock capability.
 /// </summary>
 /// <remarks>
-/// 实现负责获取锁、执行状态转换、调用业务 Work 并正确释放最终持有的锁状态。
-/// 同一个实现实例会被多个测试线程共享，以触发真实的汇聚或权限转换。
+/// The implementation acquires permission, performs transitions, invokes business Work, and releases the final held state.
+/// One implementation instance is shared by multiple test threads to create real convergence/transition contention.
 /// </remarks>
 internal interface IAdvancedLockFunction
 {
     string Name { get; }
 
     /// <summary>
-    /// 执行一次完整的高级锁操作。
+    /// Executes one complete advanced lock operation.
     /// </summary>
-    /// <param name="work">本 Test Case 独占的新业务工作集。</param>
-    /// <returns>本次操作的业务摘要、状态转换结果和完成的 Work 数。</returns>
+    /// <param name="work">Fresh workload owned by this correctness case.</param>
+    /// <returns>Business checksum, transition outcome, and completed Work count.</returns>
     AdvancedLockFunctionResult Execute(IWork work);
 }
 
 /// <summary>
-/// 高级锁操作的单次执行结果。
+/// Result of one advanced lock operation.
 /// </summary>
 internal readonly struct AdvancedLockFunctionResult
 {
-    /// <summary>业务代码返回值的组合摘要。</summary>
+    /// <summary>Combined business-code checksum.</summary>
     public long Checksum { get; }
 
-    /// <summary>本次执行完成的 TickRead/TickWrite 数量。</summary>
+    /// <summary>Number of TickRead/TickWrite operations completed.</summary>
     public int CompletedWorks { get; }
 
     /// <summary>
-    /// 高级操作是否完成。对于升级操作，它表示当前调用者是否成为唯一升级成功者。
+    /// Whether the advanced operation completed; for conditional upgrade, whether this caller became the unique winner.
     /// </summary>
     public bool Succeeded { get; }
 

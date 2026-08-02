@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -13,8 +13,5 @@
     <ProjectReference Include="..\ConcurrentExclusivePack\ConcurrentExclusivePack.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <PackageReference Include="BenchmarkDotNet" Version="0.15.8" />
-  </ItemGroup>
 
 </Project>

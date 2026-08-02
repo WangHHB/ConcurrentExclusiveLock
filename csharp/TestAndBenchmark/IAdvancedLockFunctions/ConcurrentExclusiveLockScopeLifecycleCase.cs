@@ -5,7 +5,7 @@ using IntomicLib;
 namespace LockBenchmark;
 
 /// <summary>
-/// 验证 Scope 在普通释放、异常路径、升降级路径里都能按当前持有状态自动收尾。
+/// Verifies Scope cleanup after normal release, exceptions, upgrades, downgrades, and failed transitions.
 /// </summary>
 internal sealed class ConcurrentExclusiveLockScopeLifecycleCase : IAdvancedLockCorrectnessCase
 {
@@ -166,7 +166,7 @@ internal sealed class ConcurrentExclusiveLockScopeLifecycleCase : IAdvancedLockC
                 else
                 {
                     Interlocked.Increment(ref losers);
-                    // 失败者的 Concurrent 已由底层释放；Dispose 不能再重复释放。
+                    // The failed transition already released Concurrent; Dispose must not release it a second time.
                 }
             });
         }
@@ -476,7 +476,7 @@ internal sealed class ConcurrentExclusiveLockScopeLifecycleCase : IAdvancedLockC
         const int paths = 2000;
         const int seed = 5357811;
         ConcurrentExclusiveLock locker = ConcurrentExclusiveLock.Create();
-        Random random = new Random(seed);
+        PortableRandom random = new PortableRandom(seed);
         int injectedExceptions = 0;
         int normalExits = 0;
 

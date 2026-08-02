@@ -3,7 +3,7 @@ using System.Threading;
 namespace LockBenchmark;
 
 /// <summary>
-/// 高级语义测试的小型黑洞，避免 JIT 把极短业务段完全优化掉。
+/// Small semantic-test sink that prevents the JIT from eliminating extremely short business bodies.
 /// </summary>
 internal static class AdvancedSemanticSink
 {

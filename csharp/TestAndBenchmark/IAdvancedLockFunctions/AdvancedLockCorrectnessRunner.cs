@@ -6,7 +6,7 @@ using System.Threading;
 
 namespace LockBenchmark;
 
-/// <summary>一个可独立执行的高级锁语义正确性案例。</summary>
+/// <summary>One independently executable advanced lock-semantic correctness case.</summary>
 internal interface IAdvancedLockCorrectnessCase
 {
     string Name { get; }
@@ -14,7 +14,7 @@ internal interface IAdvancedLockCorrectnessCase
     void Run();
 }
 
-/// <summary>阶段3总控：只报告语义正确性，不参与标准锁性能排名。</summary>
+/// <summary>Runs advanced CEL semantic correctness only; results are not used for lock performance ranking.</summary>
 internal static class AdvancedLockCorrectnessRunner
 {
     public static int Run(
@@ -22,7 +22,7 @@ internal static class AdvancedLockCorrectnessRunner
         int advancedOperationsPerLock,
         int? requestedSeed)
     {
-        int randomSeed = requestedSeed ?? Random.Shared.Next();
+        int randomSeed = requestedSeed ?? SeedSource.Create();
         List<IAdvancedLockCorrectnessCase> cases = new List<IAdvancedLockCorrectnessCase>
         {
             new ExclusiveToConcurrentCorrectnessCase(),
@@ -37,16 +37,12 @@ internal static class AdvancedLockCorrectnessRunner
                 randomSeed));
         }
 
-        Console.WriteLine("Stage 3: advanced lock correctness");
-        Console.WriteLine("Dedicated Thread instances are used; every blocking assertion has a timeout.");
+        Console.WriteLine("Advanced lock correctness");
         if (lockInstances > 1)
         {
             Console.WriteLine(
                 $"Mass-independent mode: locks={lockInstances:n0}, participants/lock=2, " +
-                $"maximum simultaneous threads={lockInstances * 2L:n0}.");
-            Console.WriteLine(
-                $"Base operations/lock/kind={advancedOperationsPerLock:n0}, " +
-                $"random jitter=+/-25%, seed={randomSeed}.");
+                $"threads={lockInstances * 2L:n0}, operations/participant={advancedOperationsPerLock:n0}, seed={randomSeed}.");
         }
         Console.WriteLine();
 
@@ -72,18 +68,18 @@ internal static class AdvancedLockCorrectnessRunner
     }
 }
 
-/// <summary>高级语义测试共用的超时和短暂阻塞观察窗口。</summary>
+/// <summary>Shared deadlock-safety timeout and short blocked-state observation window for correctness tests.</summary>
 internal static class AdvancedTestTiming
 {
     public static readonly TimeSpan Timeout = TimeSpan.FromMinutes(1);
     public static readonly TimeSpan MustRemainBlocked = TimeSpan.FromMilliseconds(100);
 }
 
-/// <summary>为正确性测试创建专用后台线程，并集中传播线程异常。</summary>
+/// <summary>Creates dedicated correctness-test threads and propagates the first worker exception.</summary>
 internal sealed class AdvancedTestThreadGroup
 {
     private readonly List<Thread> threads = new List<Thread>();
-    private ExceptionDispatchInfo firstFailure;
+    private ExceptionDispatchInfo? firstFailure;
 
     public void Start(string name, Action body)
     {
@@ -116,7 +112,7 @@ internal sealed class AdvancedTestThreadGroup
     private static string FormatException(Exception exception)
     {
         string result = $"{exception.GetType().Name}: {exception.Message}";
-        Exception inner = exception.InnerException;
+        Exception? inner = exception.InnerException;
         while (inner != null)
         {
             result += $" -> {inner.GetType().Name}: {inner.Message}";
@@ -202,7 +198,7 @@ internal sealed class AdvancedTestThreadGroup
     }
 }
 
-/// <summary>小型断言集，避免引入测试框架和线程池调度。</summary>
+/// <summary>Minimal assertion helpers that avoid a test-framework dependency and thread-pool scheduling.</summary>
 internal static class AdvancedAssert
 {
     public static void Wait(ManualResetEventSlim signal, string message)
