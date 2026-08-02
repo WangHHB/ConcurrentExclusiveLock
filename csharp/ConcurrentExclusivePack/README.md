@@ -1,16 +1,10 @@
-## License
-
-ConcurrentExclusiveLock is dual-licensed under the MIT License or the Apache License 2.0, at your option.
-See [`LICENSE-MIT`](LICENSE-MIT) and [`LICENSE-APACHE-2.0`](LICENSE-APACHE-2.0) for details.
-
 # ConcurrentExclusiveLock
 
 **ConcurrentExclusiveLock (CEL) is a Concurrent / Exclusive synchronization protocol designed for fine-grained state objects. All implemented language versions use the C# implementation as their semantic baseline and provide the complete set of capabilities: preemptive Exclusive acquisition, in-place Concurrent-to-Exclusive upgrade, in-place Exclusive-to-Concurrent downgrade, and three abstraction layers consisting of the core lock, Scope, and Pipeline. The Pipeline layer can coordinate multi-stage reads and writes, upgrades and downgrades, conditional convergence, and exception-safe release within a continuous synchronization context, preventing complex concurrency-control logic from being scattered throughout business code.
 
 Among publicly available implementations known to date, CEL is the only reader-writer synchronization implementation that supports direct in-place upgrade and downgrade without requiring special read or write modes, advance declaration of upgrade intent, or prior acquisition of upgrade permission. Its upgrade and downgrade paths are both remarkably simple and elegant, achieving continuous, symmetric, and efficient permission transitions with minimal state changes.
 
-All language versions have undergone performance benchmarking and extensive stress testing. In both single-lock high-contention scenarios and multi-lock parallel workloads, CEL significantly outperforms the corresponding platform-native locks in its target scenarios, including read-dominant workloads, latency-sensitive writes, and frequent upgrades and downgrades. Even in non-target scenarios such as write-heavy workloads, its performance generally remains close to that of native locks, with only limited additional overhead.**
-
+All language versions have undergone performance benchmarking and extensive stress testing. The C# reference implementation has also completed a unified formal matrix spanning a single-core configuration, SMT enabled and disabled, a 4-vCPU virtual machine, and dual-socket 52-core / 104-thread systems running both Windows and Linux. The results show that CEL consistently outperforms traditional implementations when real Concurrent parallelism, timely Exclusive progress, or frequent permission convergence is required. In non-target scenarios such as write-heavy and purely Exclusive workloads, it generally remains at mutex-level performance without structural degradation.**
 
 ## Installation
 
@@ -49,7 +43,7 @@ The current **C# / .NET implementation** is the original and authoritative versi
 - [Use Cases](#use-cases)
 - [Design Boundaries](#design-boundaries)
 - [Test Project](#test-project)
-- [Historical Performance Snapshot](#historical-performance-snapshot)
+- [Performance](#performance)
 - [Project Status](#project-status)
 
 ---
@@ -687,109 +681,286 @@ These constraints preserve clear synchronization semantics, low normal-path over
 
 ---
 
+## Project Positioning
+
+ConcurrentExclusiveLock is not intended to be a universal lock for every problem, nor is it a simple reproduction of a traditional Reader/Writer Lock.
+
+Its primary goal is:
+
+> To express Concurrent / Exclusive permissions at low normal-path cost across large numbers of fine-grained state objects, while combining preemption, upgrade, downgrade, business-ID convergence, and continuous workflow orchestration into one complete protocol.
+
+The project currently includes:
+
+- `ConcurrentExclusiveLock`
+- `ConcurrentExclusiveLockScope`
+- `ConcurrentExclusiveLockPipeline`
+- complete XML API documentation
+- protection against misuse of synchronous Segments
+- BenchmarkDotNet performance tests
+- long-running randomized call stress tests
+
+---
+
 ## Test Project
 
-The independent [`TestAndBenchmark`](../TestAndBenchmark/README.md) project provides:
+The test project in this repository validates the core synchronization protocol under different contention conditions, permission-transition paths, and hardware topologies. It mainly covers:
 
-- deterministic Core, Scope, and Pipeline correctness suites;
-- ContextID / EpochID and permission-conversion validation;
-- timed Pipeline all-semantics stress with reproducible random exception injection, plus persistent-lock endurance;
-- contention diagnostics;
-- throughput, acquisition-latency, exclusive-progress, staged-operation, and upgrade-contention experiments;
-- single-lock and multi-lock topologies;
-- raw JSONL records and transparent cross-platform matrix runners.
+- basic Concurrent / Exclusive acquisition, release, and state-consistency tests;
+- preemptive Exclusive behavior and progress under a fixed Concurrent flood;
+- in-place Concurrent → Exclusive upgrades and in-place Exclusive → Concurrent downgrades;
+- ordering between ordinary Exclusive requests and a batch upgrade chain;
+- ContextID / EpochID protocol behavior;
+- Pipeline Segment combinations, exception-safe release, and randomized semantic tests;
+- single-lock / multi-lock throughput and pure permission-acquisition latency;
+- staged performance comparisons among Pipeline convergence, Core handoff, RWLS handoff, and a serialized baseline;
+- a unified cross-machine matrix covering one core, SMT enabled and disabled, virtual machines, Windows / Linux, and dual-socket NUMA systems;
+- long-running randomized call stress tests and BenchmarkDotNet performance tests.
 
-The throughput and acquisition-latency modes compare `lock`, `ReaderWriterLockSlim`, and CEL under the same requested topology and workload. Exclusive-progress compares implementations that support simultaneous Concurrent holders. Staged-operation and CEL-specific upgrade tests use explicitly labeled semantic baselines.
-
-All command-line topology and workload values are literal. The benchmark records CPU/OS/runtime information but does not silently scale parameters from the machine configuration.
-
-See the [complete test and benchmark guide](../TestAndBenchmark/README.md) for commands, metric definitions, methodology, matrix execution, and raw historical output.
+All command-line topology and workload parameters are executed literally. The benchmark records detected hardware and runtime information but never changes the thread count, lock-instance count, operation count, or workload according to the detected core count.
 
 **The test project was written by AI.**
 
-## Historical Performance Snapshot
+The test code is intended to assist with validating the current implementation, expand path coverage, and provide performance-observation data. The core synchronization protocol, API design, and semantic definitions are governed by the C# / .NET main project implementation.
 
-The following two benchmark comparisons are retained as an historical project snapshot.
 
-### Environment
+## Performance
 
-- **Operating system**: Windows 11
-- **CPU**: AMD Ryzen 7 5700X, 8 cores / 16 threads
-- **SMT**: Enabled
-- **CPU frequency**: Fixed at 4.5 GHz on all cores
-- **Runtime**: .NET 8.0.22
-- **Worker threads**: Dedicated `Thread` instances starting from a shared gate
-- **Workload**: Random access to shared memory
+This section now uses a unified formal cross-machine matrix instead of the earlier historical snapshot from a single Windows 11 workstation.
 
-These results describe only the listed environment and parameters. They are not an absolute performance guarantee.
+The formal matrix jointly evaluates:
 
-The historical `avg write ns` field was originally described as write latency. Its precise measurement interval was the complete timed Exclusive operation: acquisition, protected work, release, and timing overhead. It was **not** pure acquisition latency and did not contain p95, p99, p99.9, or maximum data. The current test project provides `--latency` for acquisition-tail measurement and `--exclusive-progress` for counting Exclusive progress during a fixed Concurrent flood. In `--exclusive-progress`, every completed Exclusive operation must be followed by at least one new Concurrent completion on the same lock before that writer may request Exclusive again.
+- semantic correctness;
+- mixed Concurrent / Exclusive throughput;
+- pure permission-acquisition latency and tail latency;
+- Exclusive progress under a fixed amount of Concurrent work;
+- staged `Concurrent → Exclusive → Concurrent` workflows;
+- contention ordering between large-scale in-place upgrades and ordinary Exclusive requests.
 
-### Single hot lock
+For the complete commands, metric definitions, output fields, and historical snapshots, see the [C# Testing and Benchmark Guide](./csharp/TestAndBenchmark/README.md).
 
-Command:
+### Test Matrix
+
+| Environment | Operating system / runtime | Visible processors | Primary purpose |
+|---|---|---:|---|
+| AMD Ryzen 7 5700X, BIOS configured for one core | Windows 11 / .NET 8.0.22 | 1 | Single-core degradation and fixed-cost baseline |
+| AMD Ryzen 7 5700X, SMT disabled, fixed at 4.5 GHz | Windows 11 / .NET 8.0.22 | 8 | Physical-core contention |
+| AMD Ryzen 7 5700X, SMT enabled, fixed at 4.5 GHz | Windows 11 / .NET 8.0.22 | 16 | Main workstation reference result |
+| AMD EPYC 9V74 cloud virtual machine | Debian 13 / .NET 8.0.29 | 4 vCPU | Oversubscription and Linux virtualization |
+| Intel Platinum 8269CY, 2 sockets, 52 cores / 104 threads | Ubuntu 26.04 / .NET 8.0.29 | 104 | Dual-socket NUMA / Linux |
+| Intel Platinum 8269CY, 2 sockets, 52 cores / 104 threads | Windows Server 2025 / .NET 8.0.29 | 104 | Same-hardware cross-OS comparison |
+
+Each environment produces one JSONL file containing **94 records across 14 experiments**. The correctness mode completed with `exitCode = 0` in every formal matrix.
+
+### Unified Parameters and Measurement Boundaries
+
+The throughput tests use two fixed topologies:
+
+- `1×64`: one hot lock with 64 worker threads;
+- `8×8`: eight independent locks with eight worker threads per lock.
+
+Both topologies execute a total of 6,400,000 operations, using 8 MiB of shared memory per lock, 64 Concurrent work steps, and 64 Exclusive work steps. Thread counts, lock-instance counts, workload sizes, and operation counts are executed exactly as supplied on the command line and are never scaled according to the machine's core count.
+
+In `throughput` mode, `averageExclusiveOperationNs` measures one complete Exclusive operation, including acquisition, protected work, release, and timing overhead. It is not pure acquisition latency.
+
+The `latency` mode measures permission-acquisition time specifically. Every acquisition is timed. `--latency-sample-every 10` only controls deterministic sample retention; sample selection uses random state independent from the Concurrent / Exclusive permission choice and is performed after permission release, so it does not alter the measured contention process.
+
+The results below are each taken from one formal matrix run on the corresponding environment. They demonstrate repeatable performance shapes rather than absolute guarantees for every machine and workload. When comparing different hardware, trends and relative multipliers are more meaningful than raw throughput.
+
+### 1. 5700X with SMT Enabled: One Hot Lock
+
+`1×64` most directly exposes Concurrent parallelism within a single lock instance.
+
+| Concurrent / Exclusive | `lock` works/s | `ReaderWriterLockSlim` works/s | CEL works/s | CEL / `lock` | CEL / RWLS |
+|---:|---:|---:|---:|---:|---:|
+| 100 / 0 | 2,589,515 | 6,660,960 | **11,083,470** | **4.28×** | **1.66×** |
+| 99.5 / 0.5 | 2,682,341 | 5,094,422 | **12,337,668** | **4.60×** | **2.42×** |
+| 90 / 10 | 2,392,583 | 2,107,590 | **5,392,722** | **2.25×** | **2.56×** |
+| 50 / 50 | 1,982,155 | 1,050,757 | **2,178,160** | **1.10×** | **2.07×** |
+| 30 / 70 | 1,855,687 | 892,264 | **1,923,724** | **1.04×** | **2.16×** |
+| 0 / 100 | 1,688,922 | 1,082,263 | **1,704,085** | **1.01×** | **1.57×** |
+
+These results show a clear degradation curve:
+
+- At high Concurrent ratios, CEL outperforms both ordinary `lock` and `ReaderWriterLockSlim`.
+- At 90/10, CEL reaches **2.25×** the throughput of `lock` and **2.56×** that of RWLS.
+- Even at 50/50 and 30/70, CEL retains mutex-level throughput while delivering approximately twice the throughput of RWLS.
+- At 100% Exclusive, CEL reaches **1.01×** the throughput of `lock`, showing that its richer Concurrent, preemption, upgrade, and downgrade semantics do not impose a meaningful pure-serialization-path tax.
+
+### 2. 5700X with SMT Enabled: Eight Independent Locks
+
+In `8×8`, an ordinary mutex can also execute across independent lock instances in parallel, so CEL's multiplier relative to `lock` naturally becomes smaller.
+
+| Concurrent / Exclusive | `lock` works/s | `ReaderWriterLockSlim` works/s | CEL works/s | CEL / `lock` | CEL / RWLS |
+|---:|---:|---:|---:|---:|---:|
+| 100 / 0 | 3,563,840 | 10,388,661 | **12,432,672** | **3.49×** | **1.20×** |
+| 99.5 / 0.5 | 3,642,434 | 7,004,578 | **14,775,721** | **4.06×** | **2.11×** |
+| 90 / 10 | 3,528,619 | 4,423,317 | **5,494,419** | **1.56×** | **1.24×** |
+| 50 / 50 | 3,257,390 | 3,250,963 | **3,294,069** | **1.01×** | **1.01×** |
+| 30 / 70 | 3,118,793 | 3,025,585 | **3,270,777** | **1.05×** | **1.08×** |
+| 0 / 100 | 3,076,909 | 2,752,932 | **3,048,696** | **0.99×** | **1.11×** |
+
+The multi-lock results show that:
+
+- CEL's single-lock advantage is not produced by global spinning or global mutual exclusion.
+- At 99.5/0.5, CEL still reaches **2.11×** the throughput of RWLS.
+- From 50/50 through 100% Exclusive, CEL remains within approximately 1% to 5% of `lock`.
+- Multiple locks reduce the relative throughput multiplier, not CEL's per-instance permission-convergence capability.
+
+### 3. Cross-Topology Results: The Advantage Appears Only When Real Parallelism and Contention Exist
+
+The following table uses the 90/10 mixed workload to show CEL's scalability relative to RWLS and the 100% Exclusive workload to show CEL's serialized-path cost relative to ordinary `lock`.
+
+| Environment | 1×64, 90/10 CEL / RWLS | 8×8, 90/10 CEL / RWLS | 1×64, 0/100 CEL / `lock` |
+|---|---:|---:|---:|
+| 5700X single core | **0.99×** | **1.05×** | 0.97× |
+| 5700X, SMT disabled | **2.34×** | **1.49×** | 1.01× |
+| 5700X, SMT enabled | **2.56×** | **1.24×** | 1.01× |
+| EPYC 4 vCPU / Debian | **12.20×** | **2.69×** | 1.04× |
+| 8269CY / Ubuntu | **9.89×** | **11.82×** | 0.99× |
+| 8269CY / Windows Server | **2.88×** | **1.76×** | 0.82× |
+
+In the single-core configuration, CEL and RWLS are effectively tied. With no parallel resources to exploit, CEL does not manufacture a throughput advantage.
+
+Once the workload moves to real multicore, virtualized, or dual-socket NUMA environments, the gap under mixed contention becomes visible:
+
+- In the 4-vCPU Debian VM, CEL reaches **12.20×** RWLS throughput in the `1×64` 90/10 workload.
+- On dual-socket Ubuntu, CEL reaches **9.89×** and **11.82×** RWLS throughput in `1×64` and `8×8` 90/10 respectively.
+- Windows Server 2025 substantially improves RWLS behavior, but CEL still leads by **2.88×** and **1.76×** on the same dual-socket hardware.
+
+In `1×64` at 100% Exclusive, CEL ranges from **0.82× to 1.04×** ordinary `lock`. This shows that CEL's advantages are not purchased through structural collapse under write-heavy workloads. The weakest result occurs on dual-socket Windows Server; on the other multicore environments, CEL remains close to or equal with the ordinary mutex.
+
+### 4. Ubuntu / Windows Server Comparison on the Same Dual-Socket Machine
+
+The two 8269CY results use the same hardware, the same .NET runtime version, and the same benchmark parameters, allowing the effect of operating-system synchronization and scheduling paths to be observed directly.
+
+Taking the geometric mean of `Windows / Ubuntu` throughput across all 12 throughput scenarios gives:
+
+| Implementation | Windows / Ubuntu geometric mean | Minimum | Maximum |
+|---|---:|---:|---:|
+| `lock` | **1.458×** | 0.771× | 2.632× |
+| RWLS | **2.227×** | 0.699× | 6.985× |
+| **CEL** | **1.019×** | 0.637× | 1.939× |
+
+Representative absolute throughput values are:
+
+| Scenario | Ubuntu RWLS | Ubuntu CEL | Windows RWLS | Windows CEL |
+|---|---:|---:|---:|---:|
+| 1×64, 100/0 | 1.500 M/s | **7.959 M/s** | 1.233 M/s | **7.957 M/s** |
+| 1×64, 90/10 | 0.203 M/s | **2.002 M/s** | 0.559 M/s | **1.613 M/s** |
+| 8×8, 90/10 | 0.667 M/s | **7.882 M/s** | 4.659 M/s | **8.184 M/s** |
+| 8×8, 50/50 | 0.420 M/s | **3.152 M/s** | 2.095 M/s | **3.235 M/s** |
+
+The most notable observations are:
+
+- Under `1×64` pure Concurrent load, CEL throughput differs by only about **0.02%** between the two operating systems.
+- Under `8×8` 90/10, CEL differs by only about **3.8%**.
+- In that same scenario, RWLS differs by approximately **6.99×** between Windows and Ubuntu.
+- On Ubuntu, RWLS falls from 10.560 M/s at `8×8` 100/0 to 0.667 M/s at 90/10, a throughput reduction of approximately **93.7%** after writers are introduced.
+
+This comparison does not imply that CEL must have identical absolute speed on every operating system. It does show that its key performance shape is driven primarily by the protocol itself, while RWLS is more sensitive to operating-system waiting, wake-up, scheduling, and cross-NUMA coordination paths.
+
+### 5. Exclusive Acquisition Latency
+
+The `latency` test uses a 90/10 mixed workload. Values in the table are the mean **pure acquisition time** for Exclusive permission and do not include Exclusive work or release.
+
+| Environment | 1×64 RWLS | 1×64 CEL | Improvement | 8×8 RWLS | 8×8 CEL | Improvement |
+|---|---:|---:|---:|---:|---:|---:|
+| 5700X, SMT disabled | 228.0 μs | **12.4 μs** | **18.41×** | 70.4 μs | **8.1 μs** | **8.73×** |
+| 5700X, SMT enabled | 177.4 μs | **11.9 μs** | **14.97×** | 121.3 μs | **14.9 μs** | **8.12×** |
+| EPYC 4 vCPU / Debian | 342.5 μs | **18.8 μs** | **18.25×** | 173.0 μs | **39.3 μs** | **4.40×** |
+| 8269CY / Ubuntu | 160.0 μs | **33.0 μs** | **4.84×** | 151.7 μs | **7.6 μs** | **20.03×** |
+| 8269CY / Windows Server | 60.6 μs | **51.9 μs** | **1.17×** | 25.9 μs | **7.6 μs** | **3.40×** |
+
+Except for the single-core degradation baseline, CEL reduces mean Exclusive acquisition time in every multicore environment and both topologies.
+
+Representative p99 values include:
+
+- 5700X with SMT disabled, `1×64`: RWLS 1,240.9 μs, CEL **10.0 μs**;
+- 4-vCPU Debian, `1×64`: RWLS 2,583.4 μs, CEL **3.81 μs**;
+- dual-socket Ubuntu, `8×8`: RWLS 1,568.8 μs, CEL **144.0 μs**;
+- dual-socket Windows Server, `8×8`: RWLS 102.1 μs, CEL **80.2 μs**.
+
+The latency distributions may contain a small number of extreme scheduler-driven tails, so p99 should not be interpreted independently from mean, p99.9, and max. The complete percentiles are retained in the raw JSONL files.
+
+### 6. Exclusive Progress Under a Fixed Amount of Concurrent Work
+
+`exclusive-progress` does not measure which implementation can keep looping for a longer wall-clock duration. Instead, each implementation completes the same fixed number of Concurrent operations while the benchmark counts the number of Exclusive completions.
+
+Each lock has one writer that continuously requests Exclusive permission. After every Exclusive completion, that writer must wait until at least one new Concurrent completion occurs on the same lock before requesting Exclusive again. This prevents the Exclusive-entry count from inflating itself merely by extending the benchmark duration.
+
+| Environment | 1×64: RWLS → CEL | CEL / RWLS | 8×8: RWLS → CEL | CEL / RWLS |
+|---|---:|---:|---:|---:|
+| 5700X, SMT disabled | 39 → **23,640** | **606.15×** | 2,513 → **68,519** | **27.27×** |
+| 5700X, SMT enabled | 709 → **80,506** | **113.55×** | 1,803 → **95,370** | **52.90×** |
+| EPYC 4 vCPU / Debian | 1,524 → **51,890** | **34.05×** | 9,054 → **274,774** | **30.35×** |
+| 8269CY / Ubuntu | 14,774 → **519,254** | **35.15×** | 245,361 → **874,909** | **3.57×** |
+| 8269CY / Windows Server | 12,424 → **527,689** | **42.47×** | 181,427 → **654,287** | **3.61×** |
+
+Except for the single-core configuration, where no real parallelism exists, CEL substantially increases the number of completed Exclusive entries in every multicore environment.
+
+This mode observes progress under a fixed Concurrent flood; it is not a proof of strict FIFO fairness. Per-lock min / max values in short runs remain sensitive to thread scheduling, so the homepage uses total Exclusive entries as its primary metric.
+
+### 7. Pipeline: In-Place Convergence Versus Release and Reacquisition
+
+The Pipeline benchmark uses a fixed three-stage workflow:
 
 ```text
-TestAndBenchmark.exe --throughput --lock-instances 1 --threads 64 --workload memory --operations 10000 --memory-mb 64 --concurrent-work 64 --exclusive-work 64
+Concurrent prepare(128)
+    → Exclusive commit(16)
+    → Concurrent post(128)
 ```
 
-Throughput:
+`CEL Pipeline converge` preserves the same synchronization context and performs in-place upgrade / downgrade. `CEL Core handoff` and `RWLS handoff` release and reacquire permission between stages.
 
-| Concurrent / Exclusive | `lock` works/s | CEL works/s | CEL / `lock` |
-|---:|---:|---:|---:|
-| 100 / 0 | 642,061 | 6,352,029 | **9.89×** |
-| 99.5 / 0.5 | 709,436 | 4,898,577 | **6.90×** |
-| 90 / 10 | 694,257 | 1,969,393 | **2.84×** |
-| 50 / 50 | 638,744 | 815,394 | **1.28×** |
-| 30 / 70 | 648,216 | 724,557 | **1.12×** |
-| 0 / 100 | 638,840 | 639,219 | **1.00×** |
+| Environment | 1×64 Pipeline / Core handoff | 1×64 Pipeline / RWLS | 8×8 Pipeline / Core handoff | 8×8 Pipeline / RWLS |
+|---|---:|---:|---:|---:|
+| 5700X single core | 0.90× | **1.00×** | 0.86× | **0.94×** |
+| 5700X, SMT disabled | 1.08× | **2.15×** | 1.41× | **1.51×** |
+| 5700X, SMT enabled | 1.07× | **2.54×** | 1.22× | **1.72×** |
+| EPYC 4 vCPU / Debian | 0.91× | **4.00×** | 0.76× | **1.47×** |
+| 8269CY / Ubuntu | 1.75× | **7.09×** | 1.89× | **3.48×** |
+| 8269CY / Windows Server | 1.72× | **4.41×** | 1.64× | **2.15×** |
 
-Historical average complete Exclusive-operation duration:
+The results show that:
 
-| Concurrent / Exclusive | `lock` | `ReaderWriterLockSlim` | CEL |
-|---:|---:|---:|---:|
-| 99.5 / 0.5 | 2,313.3 μs | 1,280.1 μs | **18.4 μs** |
-| 90 / 10 | 358.1 μs | 265.4 μs | **34.3 μs** |
-| 50 / 50 | 129.4 μs | 159.6 μs | **78.3 μs** |
-| 30 / 70 | 106.3 μs | 126.4 μs | **88.6 μs** |
-| 0 / 100 | 96.7 μs | 107.4 μs | **96.5 μs** |
+- On the 5700X and dual-socket 8269CY real multicore environments, Pipeline convergence outperforms both CEL Core handoff and RWLS handoff.
+- On dual-socket Ubuntu at `1×64`, Pipeline reaches **1.75×** Core handoff and **7.09×** RWLS handoff.
+- On dual-socket Windows Server at `1×64`, the corresponding multipliers are **1.72×** and **4.41×**.
+- In the single-core and oversubscribed 4-vCPU / 64-worker environments, preserving the permission context in place is not always faster than releasing and allowing the scheduler to redistribute work. This establishes a clear applicability boundary.
+- `Monitor serialized` serves as a serialized upper-bound baseline, but it does not provide inter-stage Concurrent parallelism or continuous permission semantics and is therefore not an equivalent Pipeline replacement.
 
-### Eight independent locks
+### 8. Correctness and Upgrade Contention
 
-Command:
+The correctness mode completed successfully in all six formal matrices.
+
+Upgrade-contention testing covers:
+
+- one lock with 64 upgrading threads and 0 ordinary Exclusive threads;
+- one lock with 64 upgrading threads and 16 ordinary Exclusive threads;
+- eight locks with eight upgrading threads per lock and 0 ordinary Exclusive threads;
+- eight locks with eight upgrading threads and four ordinary Exclusive threads per lock.
+
+All 24 upgrade-contention results across the six environments satisfy:
 
 ```text
-TestAndBenchmark.exe --throughput --lock-instances 8 --threads 8 --workload memory --operations 10000 --memory-mb 64 --concurrent-work 32 --exclusive-work 32
+ordinaryEnteredBeforeUpgradeDrain = 0
 ```
 
-Throughput:
+In these tests, no ordinary Exclusive request entered before the pending upgrade chain had drained. This validates the current implementation's upgrade-priority ordering, but it must not be generalized into a strict FIFO guarantee over all operating-system scheduling orders.
 
-| Concurrent / Exclusive | `lock` works/s | CEL works/s | CEL / `lock` |
-|---:|---:|---:|---:|
-| 100 / 0 | 4,137,082 | 8,703,469 | **2.10×** |
-| 99.5 / 0.5 | 5,180,353 | 9,270,928 | **1.79×** |
-| 90 / 10 | 5,088,593 | 6,643,311 | **1.31×** |
-| 50 / 50 | 4,734,323 | 4,471,759 | **0.94×** |
-| 30 / 70 | 4,587,001 | 4,469,982 | **0.97×** |
-| 0 / 100 | 4,363,531 | 4,327,655 | **0.99×** |
+### Complete Benchmark Results
 
-Historical average complete Exclusive-operation duration:
+The homepage retains only the tables needed to explain the main performance shapes instead of expanding dozens of raw outputs inline.
 
-| Concurrent / Exclusive | `lock` | `ReaderWriterLockSlim` | CEL |
-|---:|---:|---:|---:|
-| 99.5 / 0.5 | 225.5 μs | 859.6 μs | **61.1 μs** |
-| 90 / 10 | 36.6 μs | 81.0 μs | **11.6 μs** |
-| 50 / 50 | 16.3 μs | 22.7 μs | **10.8 μs** |
-| 30 / 70 | 14.5 μs | 17.6 μs | **13.0 μs** |
-| 0 / 100 | 14.2 μs | 15.1 μs | **14.3 μs** |
+The complete material includes:
 
-The single-hot-lock result isolates per-instance Concurrent parallelism. CEL reaches **9.89×** the throughput of `lock` at 100 / 0, **6.90×** at 99.5 / 0.5, and **2.84×** at 90 / 10. As the Exclusive share rises, the amount of compatible work that can overlap shrinks, so the advantage converges to **1.28×** at 50 / 50, **1.12×** at 30 / 70, and practical parity at 0 / 100. Reaching mutex-level throughput at the fully Exclusive endpoint is itself a strong result for a Concurrent/Exclusive primitive: CEL retains its richer permission protocol, preemptive Exclusive path, and transition machinery without imposing a material penalty when the workload degenerates into complete serialization. The curve therefore shows both substantial upside when compatible work exists and almost no downside when it does not.
-
-With eight independent locks, ordinary mutexes also gain inter-instance parallelism, so the gap narrows. CEL remains ahead in Concurrent-heavy mixes—**2.10×** at 100 / 0, **1.79×** at 99.5 / 0.5, and **1.31×** at 90 / 10—while the 50 / 50, 30 / 70, and 0 / 100 results remain within 6% of `lock`. For a reader/writer-style synchronization primitive, staying this close to the mutex baseline under write-heavy and fully Exclusive traffic is notable: the additional Concurrent/Exclusive semantics do not turn into a large serialized-path tax. The result also verifies that CEL scales per lock instance and does not depend on a global lock or global spinning mechanism.
-
-The historical complete Exclusive-operation measurements show a separate effect. Under mixed contention, CEL's preemptive Exclusive path keeps the timed acquire + work + release interval substantially shorter than the baselines, especially on the single hot lock. As the workload approaches 100% Exclusive, those durations converge toward `lock`, reinforcing the same conclusion: CEL preserves mutex-class serialized performance while adding efficient overlap when permissions are compatible. These values are not pure acquisition-latency percentiles; use `--latency` for acquisition-tail measurements.
-
-The current command definitions, measurement methodology, and fixed cross-machine command set are documented in the [detailed test guide](../TestAndBenchmark/README.md).
+- every formal matrix command;
+- precise definitions of all metrics;
+- JSONL field documentation;
+- latency mean / p50 / p95 / p99 / p99.9 / max;
+- per-lock Exclusive Progress details;
+- absolute throughput for every Pipeline strategy;
+- historical single-machine benchmark snapshots.
 
 ---
 
@@ -810,7 +981,13 @@ The current C# / .NET implementation is the semantic reference. Implementations 
 - **Compatibility target**: .NET 8.0, .NET Standard 2.1
 - **Intended environments**: .NET, Unity3D, game servers, and other fine-grained state systems
 - **GitHub**: <https://github.com/WangHHB/ConcurrentExclusiveLock>
-- **Issues**: https://github.com/WangHHB/ConcurrentExclusiveLock/issues
+
+---
+
+## License
+
+ConcurrentExclusiveLock is dual-licensed under the MIT License or the Apache License 2.0, at your option.
+See [`LICENSE-MIT`](LICENSE-MIT) and [`LICENSE-APACHE-2.0`](LICENSE-APACHE-2.0) for details.
 
 ---
 
