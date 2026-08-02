@@ -340,6 +340,12 @@ Accepted duration forms include `30s`, `15m`, `24h`, `1d`, and `hh:mm:ss`.
 TestAndBenchmark.exe --pipeline-stress 10m --lock-instances 8 --semantic-workers 8 --semantic-operations 1000 --semantic-seed 34567 --pipeline-exception-permille 10 --machine-id workstation-win-smt-on --experiment-id pipeline-stress-10m --output results.jsonl
 ```
 
+**24-hour release validation**
+
+```text
+TestAndBenchmark.exe --pipeline-stress 24h --lock-instances 8 --semantic-workers 128 --semantic-operations 2000
+```
+
 ### Persistent-lock endurance — `--endurance DURATION`
 
 **Purpose**
