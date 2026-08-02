@@ -9,11 +9,11 @@
 [![NuGet Downloads](https://img.shields.io/nuget/dt/ConcurrentExclusiveLock.svg)](https://www.nuget.org/packages/ConcurrentExclusiveLock/)
 [![License](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](#许可证)
 
-**ConcurrentExclusiveLock（CEL） 是一套面向细粒度状态对象的 Concurrent / Exclusive 同步协议。所有已实现的语言版本均以 C# 版本为语义基准，完整提供抢占式 Exclusive、Concurrent 原地升级、Exclusive 原地降级，以及核心锁、Scope 和 Pipeline 三层封装；其中 Pipeline 可在不中断同步上下文的情况下，统一编排多阶段读写、升降级、条件收敛与异常释放，避免复杂并发控制逻辑分散在业务代码中。
+**ConcurrentExclusiveLock（CEL）是一套面向细粒度状态对象的 Concurrent / Exclusive 同步协议。所有已实现的语言版本均以 C# 版本为语义基准，完整提供抢占式 Exclusive、Concurrent 原地升级、Exclusive 原地降级，以及 Core、Scope 和 Pipeline 三层抽象。其中，Pipeline 可在连续的同步上下文中统一编排多阶段权限、升降级、条件收敛与异常清理，使业务代码只声明各阶段的权限需求，而无需手工维护获取、释放和转换状态。
 
-据目前公开可查的实现，CEL 是唯一能够在不区分特殊读写模式、无需提前声明升级意图、也无需预先申请升级权限的情况下，直接完成原地升级与原地降级的读写同步实现；其升降级路径设计简洁而巧妙，以极少的状态转换完成了连续、对称且高效的权限切换。
+据目前公开可查的主流实现，CEL 是唯一同时具备以下性质的 Concurrent / Exclusive 同步实现：普通 Concurrent 持有者无需预先声明升级意图、无需进入专用的 upgradeable 模式，也无需预先取得唯一升级资格，即可直接发起可等待的原地 Concurrent → Exclusive 转换；多个普通 Concurrent 持有者还可以同时进入升级序列，并依次收敛为 Exclusive。CEL 同时提供对称的原地 Exclusive → Concurrent 降级。整个升降级协议通过紧凑而对称的状态转换完成，无需引入第三种长期持有权限。
 
-所有语言版本均经过性能基准测试和长期压力测试。C# 参考实现还完成了覆盖单核、SMT 开关、4 vCPU 虚拟机以及双路 52 核 / 104 线程 Windows 与 Linux 环境的统一正式矩阵。结果显示：在存在真实 Concurrent 并行、Exclusive 及时性或频繁权限收敛的场景中，CEL 能稳定领先传统实现；在写密集和纯 Exclusive 等非优势场景中，通常仍保持互斥锁级别的性能，没有出现结构性退化。**
+所有语言版本均经过性能基准和长期压力测试。C# 参考实现还完成了覆盖单核、SMT 开关、4 vCPU 虚拟机，以及双路 52 核 / 104 线程 Windows 与 Linux 环境的统一正式矩阵。结果显示，在存在真实 Concurrent 并行、需要及时 Exclusive 进展或频繁权限收敛的测试场景中，CEL 在绝大多数配置下显著领先 ReaderWriterLockSlim，并可在具有足够兼容工作量时超过互斥锁；在写密集、纯 Exclusive 或并行空间不足的非优势场景中，其性能通常接近互斥锁，未观察到由协议结构导致的系统性退化。**
 
 
 ## 语言实现
