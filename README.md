@@ -9,324 +9,134 @@
 [![NuGet Downloads](https://img.shields.io/nuget/dt/ConcurrentExclusiveLock.svg)](https://www.nuget.org/packages/ConcurrentExclusiveLock/)
 [![License](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
-**ConcurrentExclusiveLock (CEL) is a Concurrent / Exclusive synchronization protocol designed for fine-grained state objects. All implemented language versions use the C# implementation as their semantic reference and provide the same core capabilities: preemptive Exclusive acquisition, in-place Concurrent → Exclusive upgrade, in-place Exclusive → Concurrent downgrade, and three abstraction layers consisting of Core, Scope, and Pipeline. Pipeline coordinates multi-stage permission workflows, upgrades and downgrades, conditional convergence, and exception-safe cleanup within a continuous synchronization context. Application code declares the permission required by each stage, while the Pipeline maintains acquisition, release, conversion, and final cleanup state on its behalf.
+ConcurrentExclusiveLock (CEL) is a high-performance synchronization library for shared and exclusive access, with direct upgrades from ordinary Concurrent holders and three API layers: Core, Scope, and Pipeline.
 
-Among the publicly available mainstream implementations known to date, CEL is the only Concurrent / Exclusive synchronization implementation that combines all of the following properties: an ordinary Concurrent holder can initiate a waitable in-place Concurrent → Exclusive transition without declaring upgrade intent in advance, entering a dedicated upgradeable mode, or first acquiring a unique upgrade right; multiple ordinary Concurrent holders may also enter the upgrade sequence concurrently and converge to Exclusive execution in turn. CEL additionally provides the symmetric in-place Exclusive → Concurrent transition. The upgrade and downgrade protocol uses compact, symmetric state transitions without introducing a third long-lived permission mode.
+**Rich permission semantics, strong parallel throughput, and near-`lock` performance as workloads become write-heavy.** In the published C# benchmarks, CEL substantially outperforms `ReaderWriterLockSlim` across most configurations with meaningful parallel work, while generally staying close to `lock` in write-heavy and fully Exclusive workloads. Both a single hot lock and multiple independent locks are covered.
 
-All language implementations have undergone performance benchmarking and long-running stress testing. In addition, the C# reference implementation has completed a unified formal test matrix covering single-core execution, SMT enabled and disabled configurations, a 4-vCPU virtual machine, and dual-socket Windows and Linux systems with 52 physical cores and 104 hardware threads.
-The results show that, in scenarios with meaningful Concurrent parallelism, a requirement for timely Exclusive progress, or frequent permission convergence, CEL significantly outperforms ReaderWriterLockSlim across the vast majority of tested configurations. When sufficient compatible work is available to execute in parallel, CEL can also exceed the throughput of an ordinary mutex. In non-target scenarios, including write-heavy workloads, pure Exclusive execution, or configurations with insufficient parallelism, CEL generally remains close to mutex performance, with no systematic degradation attributable to the protocol structure itself.
-Although CEL is primarily designed for large numbers of fine-grained state objects, the results also show that it remains highly effective when used as a single hot, coarse-grained lock. In such scenarios, it can still substantially outperform traditional reader-writer locks in overall throughput, Exclusive acquisition latency, Exclusive progress, and CPU efficiency.**
+Use CEL for synchronous reader/writer-style access, then use its upgrade, downgrade, and workflow APIs when an operation needs several permission stages.
 
+## Performance at a Glance
 
-## Implementations
+The same lock handles the full range from Concurrent-only to Exclusive-only work:
 
-- [C#](./csharp) — Reference implementation
-- [Java](./java/README.md) — Java 17+, available on [Maven Central](https://central.sonatype.com/artifact/io.github.wanghhb/concurrent-exclusive-lock)
-- [C++](./cpp/README.md) — The core lock is implemented in C, with C++ wrappers for Scope and Pipeline.
-- [Rust](./rust/README.md) — Published on [crates.io](https://crates.io/crates/concurrent-exclusive-lock)
+| Concurrent / Exclusive operations | CEL / `lock` throughput | CEL / `ReaderWriterLockSlim` throughput |
+|---|---:|---:|
+| 100 / 0 | **4.28×** | **1.66×** |
+| 99.5 / 0.5 | **4.60×** | **2.42×** |
+| 90 / 10 | **2.25×** | **2.56×** |
+| 50 / 50 | **1.10×** | **2.07×** |
+| 30 / 70 | **1.04×** | **2.16×** |
+| 0 / 100 | **1.01×** | **1.57×** |
 
+**Measured configuration:** Ryzen 7 5700X at 4.5 GHz, SMT enabled, Windows 11, .NET 8.0.22; one lock with 64 workers, 6.4 million operations, 8 MiB of shared memory, and 64 work steps per Concurrent or Exclusive operation. These are complete-operation throughput ratios, including protected work, from one recorded matrix run.
 
-## Installation
+As the Exclusive share grows, this configuration approaches the `lock` baseline while retaining CEL's upgrade and workflow capabilities. The [full performance matrix](#performance) also covers a single core, SMT disabled, a 4-vCPU VM, and dual-socket 52-core / 104-thread Windows and Linux systems, with acquisition latency, CPU usage, and Exclusive progress results. Results vary with workload and topology; the complete tables include the cases where CEL trails a baseline.
+
+[Benchmark commands and measurement definitions](./csharp/TestAndBenchmark/README.md)
+
+## Quick Start
+
+### Installation
 
 ```shell
 dotnet add package ConcurrentExclusiveLock
 ```
 
-It is suitable for assigning an independent lock instance to each player, room, entity, session, Actor, aggregate root, or task context. When a large number of lock objects coexist, CEL coordinates:
+The package targets **.NET Standard 2.1 and .NET 8.0**. Its namespace is `IntomicLib`.
 
-- concurrent access;
-- exclusive access;
-- preemptive Exclusive acquisition;
-- in-place Concurrent → Exclusive upgrades;
-- in-place Exclusive → Concurrent downgrades;
-- ContextID / EpochID business-state coordination;
-- permission workflow orchestration;
-- automatic release on exceptional paths.
+Use a Scope to acquire permission and release it automatically on return or exception:
 
-The current **C# / .NET implementation** is the original and authoritative version.
+```csharp
+using IntomicLib;
 
----
+public sealed class SharedState
+{
+    private readonly ConcurrentExclusiveLock _lock = ConcurrentExclusiveLock.Create();
+    private int _value;
 
-## Table of Contents
+    public int Read()
+    {
+        using (var scope = new ConcurrentExclusiveLockScope(_lock))
+        {
+            scope.AcquireConcurrent();
+            return _value;
+        }
+    }
 
+    public void Set(int value)
+    {
+        using (var scope = new ConcurrentExclusiveLockScope(_lock))
+        {
+            scope.AcquireExclusive();
+            _value = value;
+        }
+    }
+}
+```
+
+Concurrent callers may execute together; an Exclusive caller executes alone. Scope tracks the final permission, including after upgrades and downgrades, so the same `using` pattern also handles more complex operations.
+
+CEL is synchronous and non-recursive. Keep each Scope in one call context, and keep work that depends on its permission on the same thread without crossing an `await`. See [usage examples](#usage-examples) and [design boundaries](#design-boundaries).
+
+## What Direct Upgrades Add
+
+An operation can inspect or prepare state under Concurrent permission and request Exclusive only when it needs to commit. **Multiple ordinary Concurrent holders can enter the upgrade sequence together and obtain Exclusive in turn.** They do not need to declare upgrade intent in advance, enter a dedicated upgradeable mode, or acquire a unique upgrade right.
+
+The protocol coordinates that transition with admission and progress:
+
+| Capability | Effect on the workflow |
+|---|---|
+| Direct Concurrent → Exclusive upgrade | Converts the caller's Concurrent participation into an Exclusive reservation; other Concurrent holders can leave or register their own upgrades. |
+| Upgrade priority | New Concurrent entries are blocked while Exclusive is pending, and ordinary Exclusive requests yield to the registered upgrade chain. |
+| Exclusive → Concurrent downgrade | Retains Concurrent continuously when no other upgrades are pending; otherwise lets the remaining upgrades proceed before reacquiring Concurrent. |
+| ContextID / EpochID conditions | Couples entry into Exclusive with a business-context change or forward-only phase update. |
+
+This supports parallel preparation followed by serialized commits within one permission protocol. Earlier upgraders can change state before a later upgrader commits; validate the relevant business conditions under Exclusive. See [upgrade and downgrade semantics](#in-place-upgrade-and-downgrade).
+
+## Choose Your API Layer
+
+| Layer | Responsibility | Typical use |
+|---|---|---|
+| **Core — `ConcurrentExclusiveLock`** | Admission, exclusion, and permission transitions | Precise control over acquisition, release, and conversion in low-level code |
+| **Scope — `ConcurrentExclusiveLockScope`** | Tracks the permission still owned by the call context and releases it on exit | Ordinary application code, branches, early returns, and exceptions |
+| **Pipeline — `ConcurrentExclusiveLockPipeline`** | Declares each stage's permission and decides where the context continues, converts, or is released and reacquired | Multi-stage preparation, commit, publication, and conditional workflows |
+
+Start with Scope for ordinary access. Use Core when you need direct control, or Pipeline when the permission transitions are part of the business workflow. Pipeline also coordinates ContextID / EpochID conditions and final cleanup. See [API details](#three-api-layers) and the [Pipeline example](#pipeline).
+
+## Implementations
+
+All four implementations provide Core, Scope, and Pipeline, using C# as the semantic reference. The performance summary above measures the C# implementation; see each language's documentation for its own tests and usage.
+
+- [C# / .NET](./csharp/ConcurrentExclusivePack/README.md) — Reference implementation, available on [NuGet](https://www.nuget.org/packages/ConcurrentExclusiveLock/).
+- [Java](./java/README.md) — Java 17+, available on [Maven Central](https://central.sonatype.com/artifact/io.github.wanghhb/concurrent-exclusive-lock).
+- [C / C++](./cpp/README.md) — C core with C++ Scope and Pipeline wrappers.
+- [Rust](./rust/README.md) — Available on [crates.io](https://crates.io/crates/concurrent-exclusive-lock).
+
+## Documentation
+
+- [Usage Examples](#usage-examples)
+- [Three API Layers](#three-api-layers)
+- [Pipeline](#pipeline)
 - [Core Concepts](#core-concepts)
-- [Why This Is Not a ReadWriteLock](#why-this-is-not-a-readwritelock)
+- [Relationship to Reader/Writer Locks](#relationship-to-readerwriter-locks)
 - [Preemptive Exclusive](#preemptive-exclusive)
 - [In-Place Upgrade and Downgrade](#in-place-upgrade-and-downgrade)
 - [ContextID and EpochID](#contextid-and-epochid)
-- [Three API Layers](#three-api-layers)
-- [Quick Start](#quick-start)
-- [Pipeline](#pipeline)
 - [Synchronous and Asynchronous Boundaries](#synchronous-and-asynchronous-boundaries)
 - [Low-Allocation Design](#low-allocation-design)
 - [State Observation](#state-observation)
 - [Use Cases](#use-cases)
 - [Design Boundaries](#design-boundaries)
+- [Project Positioning](#project-positioning)
 - [Test Project](#test-project)
 - [Performance](#performance)
 - [Project Status](#project-status)
+- [Project Information](#project-information)
+- [License](#license)
 
 ---
 
-## Core Concepts
-
-CEL expresses **access permission**, not the read/write intent of the code inside the protected region.
-
-### Concurrent
-
-Concurrent means that the current operation may enter at the same time as other Concurrent operations.
-
-A Concurrent region is not necessarily read-only. It may perform modifications as long as the business rules guarantee that the concurrent operations do not conflict.
-
-### Exclusive
-
-Exclusive means that the current operation must execute alone and may not run concurrently with any Concurrent or Exclusive operation.
-
-An Exclusive region is not necessarily write-only. It may contain substantial reading, validation, and computation logic.
-
-Therefore, the question CEL answers is:
-
-> May this business operation execute concurrently with other business operations?
-
-It does not answer:
-
-> Is this code reading data or writing data?
-
----
-
-## Why This Is Not a ReadWriteLock
-
-A traditional Reader/Writer Lock is primarily built around the semantics of shared reads and exclusive writes.
-
-CEL targets a broader entity-level permission model:
-
-- multiple non-conflicting state modifications may execute concurrently;
-- some purely read-oriented operations may still require exclusive access;
-- a business operation may first inspect state concurrently and then upgrade to become the unique committer;
-- after an exclusive update, the operation may need to retain a continuous Concurrent context;
-- permission acquisition may be coupled with a ContextID or EpochID transition;
-- a single workflow may perform multiple permission transitions.
-
-For this reason, CEL uses Concurrent / Exclusive rather than Read / Write.
-
----
-
-## Preemptive Exclusive
-
-The main characteristic of CEL is **preemptive Exclusive** acquisition.
-
-Normal Concurrent acquisition and release primarily use lightweight atomic counters and do not enter the `Monitor` ordering queue.
-
-When an Exclusive request enters the contention window:
-
-1. new Concurrent operations are prevented from entering;
-2. existing Concurrent holders are allowed to leave naturally;
-3. the Exclusive request acquires permission after Concurrent holders have drained;
-4. normal contention resumes after Exclusive is released.
-
-This means that under continuous Concurrent traffic, an Exclusive request does not have to wait indefinitely for an accidental fully idle window.
-
-Normal Exclusive acquisition and Concurrent → Exclusive transitions use `Monitor` for mutual exclusion, waiting, wake-up behavior, and exclusive ordering.
-
-CEL does not provide an additional strict FIFO guarantee and does not promise stronger fairness than `Monitor`. Actual execution order is still affected by OS scheduling, CPU topology, cache state, system load, and business-operation duration.
-
----
-
-## In-Place Upgrade and Downgrade
-
-### Concurrent → Exclusive
-
-A typical business workflow is often more complex than simply “lock and modify”:
-
-1. inspect or validate state under Concurrent permission;
-2. decide whether a modification is required;
-3. attempt to become the unique committer for the relevant business condition;
-4. enter Exclusive permission after success;
-5. apply the modification.
-
-CEL supports converging directly from the current Concurrent context to Exclusive without first releasing Concurrent and then competing again from outside.
-
-The current business-condition upgrade methods include:
-
-```csharp
-ConcurrentToExclusive();
-TryConcurrentToExclusiveWithSwitchContextID(int newContextID);
-TryConcurrentToExclusiveWithRaiseEpochID(int newEpochID);
-```
-
-After a successful upgrade, the current call context holds Exclusive permission.
-
-After a failed upgrade, the original Concurrent permission has already been released by the protocol. The caller must not call `ReleaseConcurrent()` again.
-
-### Exclusive → Concurrent
-
-After the exclusive modification is complete, permission can be downgraded directly:
-
-```csharp
-scope.ExclusiveToConcurrent();
-```
-
-After the downgrade:
-
-- Exclusive permission is no longer held;
-- Concurrent permission remains held;
-- follow-up logic that depends on a continuous access context may continue;
-- no new contention window is introduced by releasing Exclusive and reacquiring Concurrent.
-
----
-
-## ContextID and EpochID
-
-CEL can associate two business identifiers with the lock state.
-
-### ContextID
-
-`ContextID` represents the identity of the current business context, for example:
-
-- the current room instance;
-- the current battle context;
-- the current player session;
-- the current data-loading batch;
-- the current task owner;
-- the current logical transaction context.
-
-```csharp
-bool changed = locker.SwitchContextID(newContextID);
-```
-
-`SwitchContextID` returns `false` when the new value is equal to the current value.
-
-It can be used to recognize the same business context and avoid repeating initialization, switching, commit, or Exclusive logic within that context.
-
-### EpochID
-
-`EpochID` represents a lifecycle, version, or phase that may only move forward, for example:
-
-- an entity version;
-- a room tick;
-- a battle phase;
-- a snapshot version;
-- a lifecycle generation;
-- a data-processing batch.
-
-```csharp
-bool raised = locker.RaiseEpochID(newEpochID);
-```
-
-The update succeeds only when `newEpochID` is greater than the current value.
-
-ContextID and EpochID are business states outside the core locking protocol. Their meaning, allocation, cleanup rules, and lifecycle are defined by the caller.
-
----
-
-## Three API Layers
-
-The project provides three API layers.
-
-### 1. ConcurrentExclusiveLock
-
-`ConcurrentExclusiveLock` is the low-level synchronization protocol.
-
-```csharp
-private readonly ConcurrentExclusiveLock _locker = ConcurrentExclusiveLock.Create();
-```
-
-It is a `readonly struct`, while the actual shared state is stored in an internal token.
-
-Copying a `ConcurrentExclusiveLock` value does not copy the lock state. The copied value still refers to the same internal synchronization state.
-
-A default-initialized instance is invalid and must not be used. Instances must be created with:
-
-```csharp
-ConcurrentExclusiveLock.Create();
-```
-
-Common APIs:
-
-```csharp
-AcquireConcurrent();
-TryAcquireConcurrent();
-
-AcquireExclusive();
-TryAcquireExclusive();
-
-ReleaseConcurrent();
-ReleaseExclusive();
-
-ExclusiveToConcurrent();
-
-SwitchContextID(...);
-RaiseEpochID(...);
-
-ConcurrentToExclusive();
-TryConcurrentToExclusiveWithSwitchContextID(...);
-TryConcurrentToExclusiveWithRaiseEpochID(...);
-```
-
-This layer is suitable for low-level code that requires precise control over each acquisition, release, and transition.
-
----
-
-### 2. ConcurrentExclusiveLockScope
-
-`ConcurrentExclusiveLockScope` is a `using`-based permission-lifetime wrapper.
-
-```csharp
-using (var scope = new ConcurrentExclusiveLockScope(_locker))
-{
-    scope.AcquireConcurrent();
-
-    ReadEntityState();
-}
-```
-
-The caller may release the current permission manually.
-
-When permission has not been released manually, `Dispose()` releases Concurrent or Exclusive according to the final permission state recorded by the Scope.
-
-Scope primarily reduces release errors on paths involving:
-
-- exceptions;
-- early returns;
-- multiple branch exits;
-- Concurrent → Exclusive upgrades;
-- Exclusive → Concurrent downgrades;
-- state changes after failed Try operations.
-
-`Dispose()` only releases access permission still held by the current Scope. It does not restore or clear ContextID / EpochID.
-
-Scope is a mutable value type with release responsibility and must only be owned and operated by a single call context.
-
-Do not copy a Scope, pass it by value, operate on it across threads, or separately operate on multiple copies of the same Scope.
-
----
-
-### 3. ConcurrentExclusiveLockPipeline
-
-`ConcurrentExclusiveLockPipeline` describes a complete permission workflow as an ordered sequence of Segments.
-
-Each Segment declares:
-
-- the business code to execute;
-- the access permission required by the Segment;
-- an optional ContextID or EpochID condition.
-
-Based on the permission successfully held by the previous Segment, the Pipeline automatically decides whether to:
-
-- continue using the current permission;
-- release and reacquire permission;
-- upgrade in place;
-- downgrade in place;
-- skip the current Segment when its condition fails;
-- continue later Segments from the None state.
-
-The role of the Pipeline can be summarized as:
-
-> Entity Permission Workflow Orchestration
-
----
-
-## Quick Start
+## Usage Examples
 
 ### Concurrent
 
@@ -442,6 +252,113 @@ public void RebuildAndPublish()
 
 ---
 
+## Three API Layers
+
+The project provides three API layers.
+
+### 1. ConcurrentExclusiveLock
+
+`ConcurrentExclusiveLock` is the low-level synchronization protocol.
+
+```csharp
+private readonly ConcurrentExclusiveLock _locker = ConcurrentExclusiveLock.Create();
+```
+
+It is a `readonly struct`, while the actual shared state is stored in an internal token.
+
+Copying a `ConcurrentExclusiveLock` value does not copy the lock state. The copied value still refers to the same internal synchronization state.
+
+A default-initialized instance is invalid and must not be used. Instances must be created with:
+
+```csharp
+ConcurrentExclusiveLock.Create();
+```
+
+Common APIs:
+
+```csharp
+AcquireConcurrent();
+TryAcquireConcurrent();
+
+AcquireExclusive();
+TryAcquireExclusive();
+
+ReleaseConcurrent();
+ReleaseExclusive();
+
+ExclusiveToConcurrent();
+
+SwitchContextID(...);
+RaiseEpochID(...);
+
+ConcurrentToExclusive();
+TryConcurrentToExclusiveWithSwitchContextID(...);
+TryConcurrentToExclusiveWithRaiseEpochID(...);
+```
+
+This layer is suitable for low-level code that requires precise control over each acquisition, release, and transition.
+
+---
+
+### 2. ConcurrentExclusiveLockScope
+
+`ConcurrentExclusiveLockScope` is a `using`-based permission-lifetime wrapper.
+
+```csharp
+using (var scope = new ConcurrentExclusiveLockScope(_locker))
+{
+    scope.AcquireConcurrent();
+
+    ReadEntityState();
+}
+```
+
+The caller may release the current permission manually.
+
+When permission has not been released manually, `Dispose()` releases Concurrent or Exclusive according to the final permission state recorded by the Scope.
+
+Scope primarily reduces release errors on paths involving:
+
+- exceptions;
+- early returns;
+- multiple branch exits;
+- Concurrent → Exclusive upgrades;
+- Exclusive → Concurrent downgrades;
+- state changes after failed Try operations.
+
+`Dispose()` only releases access permission still held by the current Scope. It does not restore or clear ContextID / EpochID.
+
+Scope is a mutable value type with release responsibility and must only be owned and operated by a single call context.
+
+Do not copy a Scope, pass it by value, operate on it across threads, or separately operate on multiple copies of the same Scope.
+
+---
+
+### 3. ConcurrentExclusiveLockPipeline
+
+`ConcurrentExclusiveLockPipeline` describes a complete permission workflow as an ordered sequence of Segments.
+
+Each Segment declares:
+
+- the business code to execute;
+- the access permission required by the Segment;
+- an optional ContextID or EpochID condition.
+
+Based on the permission successfully held by the previous Segment, the Pipeline automatically decides whether to:
+
+- continue using the current permission;
+- release and reacquire permission;
+- upgrade in place;
+- downgrade in place;
+- skip the current Segment when its condition fails;
+- continue later Segments from the None state.
+
+The role of the Pipeline can be summarized as:
+
+> Entity Permission Workflow Orchestration
+
+---
+
 ## Pipeline
 
 ### Example
@@ -507,6 +424,154 @@ Even when the previous Segment already holds the same permission, the Pipeline r
 `ConvergeExclusive` represents continuing an existing Exclusive context, establishing one by upgrading a Concurrent context in place, or acquiring a new Exclusive context.
 
 `TryApplyIDConvergeExclusive` represents continuing an existing Exclusive context, establishing one, or acquiring a new Exclusive context after the business ID has been successfully applied.
+
+---
+
+## Core Concepts
+
+CEL expresses **access permission**, not the read/write intent of the code inside the protected region.
+
+### Concurrent
+
+Concurrent means that the current operation may enter at the same time as other Concurrent operations.
+
+A Concurrent region is not necessarily read-only. It may perform modifications as long as the business rules guarantee that the concurrent operations do not conflict.
+
+### Exclusive
+
+Exclusive means that the current operation must execute alone and may not run concurrently with any Concurrent or Exclusive operation.
+
+An Exclusive region is not necessarily write-only. It may contain substantial reading, validation, and computation logic.
+
+Therefore, the question CEL answers is:
+
+> May this business operation execute concurrently with other business operations?
+
+It does not answer:
+
+> Is this code reading data or writing data?
+
+---
+
+## Relationship to Reader/Writer Locks
+
+<a id="why-this-is-not-a-readwritelock"></a>
+
+CEL can be used for the familiar shared-read / exclusive-write pattern. Concurrent permits compatible operations to overlap; Exclusive requires an operation to run alone.
+
+The names describe access compatibility rather than the instructions inside the protected code. A Concurrent region may modify state when the caller guarantees that those modifications do not conflict. An Exclusive region may include reading, validation, and computation as well as writing. Shared modes in reader/writer locks also rely on the caller to keep concurrent operations compatible.
+
+CEL combines those two access modes with direct upgrades from multiple ordinary holders, upgrade-priority ordering, downgrade behavior, business-ID conditions, and permission workflows. These capabilities support operations that inspect concurrently, commit exclusively, and then continue with Concurrent access. The following sections define the transition and ordering rules.
+
+---
+
+## Preemptive Exclusive
+
+The main characteristic of CEL is **preemptive Exclusive** acquisition.
+
+Normal Concurrent acquisition and release primarily use lightweight atomic counters and do not enter the `Monitor` ordering queue.
+
+When an Exclusive request enters the contention window:
+
+1. new Concurrent operations are prevented from entering;
+2. existing Concurrent holders are allowed to leave naturally;
+3. the Exclusive request acquires permission after Concurrent holders have drained;
+4. normal contention resumes after Exclusive is released.
+
+This means that under continuous Concurrent traffic, an Exclusive request does not have to wait indefinitely for an accidental fully idle window.
+
+Normal Exclusive acquisition and Concurrent → Exclusive transitions use `Monitor` for mutual exclusion, waiting, wake-up behavior, and exclusive ordering.
+
+CEL does not provide an additional strict FIFO guarantee and does not promise stronger fairness than `Monitor`. Actual execution order is still affected by OS scheduling, CPU topology, cache state, system load, and business-operation duration.
+
+---
+
+## In-Place Upgrade and Downgrade
+
+### Concurrent → Exclusive
+
+A typical business workflow is often more complex than simply “lock and modify”:
+
+1. inspect or validate state under Concurrent permission;
+2. decide whether a modification is required;
+3. attempt to become the unique committer for the relevant business condition;
+4. enter Exclusive permission after success;
+5. apply the modification.
+
+CEL supports converging directly from the current Concurrent context to Exclusive. The caller converts its Concurrent participation into an Exclusive reservation. Multiple ordinary Concurrent holders may register upgrades together, then execute exclusively in turn. New Concurrent and ordinary Exclusive requests cannot enter ahead of the registered upgrade chain.
+
+During the upgrade, the caller has left the active Concurrent count and resumes business code after obtaining Exclusive. Other upgraders may complete changes first, so validate the relevant commit conditions under Exclusive.
+
+The current business-condition upgrade methods include:
+
+```csharp
+ConcurrentToExclusive();
+TryConcurrentToExclusiveWithSwitchContextID(int newContextID);
+TryConcurrentToExclusiveWithRaiseEpochID(int newEpochID);
+```
+
+After a successful upgrade, the current call context holds Exclusive permission.
+
+When a conditional upgrade returns `false`, the original Concurrent permission has been consumed and the caller holds no permission. Do not call `ReleaseConcurrent()` again. An upgrade wait interrupted by `ThreadInterruptedException` also leaves the caller with no permission; any ContextID / EpochID change already applied is retained. Scope updates its ownership state and propagates the exception.
+
+### Exclusive → Concurrent
+
+After the exclusive modification is complete, permission can be downgraded directly:
+
+```csharp
+scope.ExclusiveToConcurrent();
+```
+
+After a normal return, the caller holds Concurrent and no longer holds Exclusive. Continuity depends on upgrade contention at the transition:
+
+- With no other upgrades pending, Concurrent is retained continuously, avoiding a release-and-reacquire access window.
+- With other upgraders still waiting, the current access context ends so those upgrades can proceed, and Concurrent is reacquired afterward.
+
+Consequently, a downgrade after ordinary Exclusive acquisition retains Concurrent continuously; a downgrade within an upgrade chain may wait for the other upgrades. If reacquisition is interrupted by `ThreadInterruptedException`, the original Exclusive has been released and the caller holds no permission.
+
+---
+
+## ContextID and EpochID
+
+CEL can associate two business identifiers with the lock state.
+
+### ContextID
+
+`ContextID` represents the identity of the current business context, for example:
+
+- the current room instance;
+- the current battle context;
+- the current player session;
+- the current data-loading batch;
+- the current task owner;
+- the current logical transaction context.
+
+```csharp
+bool changed = locker.SwitchContextID(newContextID);
+```
+
+`SwitchContextID` returns `false` when the new value is equal to the current value.
+
+It can be used to recognize the same business context and avoid repeating initialization, switching, commit, or Exclusive logic within that context.
+
+### EpochID
+
+`EpochID` represents a lifecycle, version, or phase that may only move forward, for example:
+
+- an entity version;
+- a room tick;
+- a battle phase;
+- a snapshot version;
+- a lifecycle generation;
+- a data-processing batch.
+
+```csharp
+bool raised = locker.RaiseEpochID(newEpochID);
+```
+
+The update succeeds only when `newEpochID` is greater than the current value.
+
+ContextID and EpochID are business states outside the core locking protocol. Their meaning, allocation, cleanup rules, and lifecycle are defined by the caller.
 
 ---
 
@@ -649,8 +714,9 @@ Its value is 0 under purely Concurrent activity. It reflects the observed conten
 
 ## Use Cases
 
-CEL is particularly suitable for:
+CEL supports a single shared-state lock as well as large numbers of independent state objects. Typical uses include:
 
+- shared state requiring reader/writer-style access, including workloads whose read/write mix changes over time;
 - players, rooms, battles, and map entities in game servers;
 - Unity3D state access with strict heap-allocation control;
 - Actor or Actor-like entities;
@@ -703,21 +769,11 @@ These constraints preserve clear synchronization semantics, low normal-path over
 
 ## Project Positioning
 
-ConcurrentExclusiveLock is not intended to be a universal lock for every problem, nor is it a simple reproduction of a traditional Reader/Writer Lock.
+CEL combines Concurrent / Exclusive synchronization with permission transitions at low normal-path cost. It supports both single shared-state locks and large numbers of independent locks for entities, sessions, cache entries, and other state objects.
 
-Its primary goal is:
+Core defines the synchronization protocol, Scope manages permission ownership through control flow, and Pipeline expresses how that ownership changes across business stages. The performance matrix measures the same implementation across Concurrent-heavy, mixed, and Exclusive-heavy workloads, as well as staged transitions.
 
-> To express Concurrent / Exclusive permissions at low normal-path cost across large numbers of fine-grained state objects, while combining preemption, upgrade, downgrade, business-ID convergence, and continuous workflow orchestration into one complete protocol.
-
-The project currently includes:
-
-- `ConcurrentExclusiveLock`
-- `ConcurrentExclusiveLockScope`
-- `ConcurrentExclusiveLockPipeline`
-- complete XML API documentation
-- protection against misuse of synchronous Segments
-- BenchmarkDotNet performance tests
-- long-running randomized call stress tests
+The project includes the three API layers, XML API documentation, synchronous Segment misuse protection, semantic correctness tests, BenchmarkDotNet benchmarks, and long-running randomized stress tests. See [design boundaries](#design-boundaries) for the synchronization contract and [the test project](#test-project) for validation coverage.
 
 ---
 
@@ -742,6 +798,7 @@ All command-line topology and workload parameters are executed literally. The be
 
 The test code is intended to assist with validating the current implementation, expand path coverage, and provide performance-observation data. The core synchronization protocol, API design, and semantic definitions are governed by the C# / .NET main project implementation.
 
+---
 
 ## Performance
 
@@ -1003,7 +1060,7 @@ The current C# / .NET implementation is the semantic reference. Implementations 
 - **Author**: 王弈博 (YiBoWang)
 - **Original implementation**: C# / .NET
 - **Compatibility target**: .NET 8.0, .NET Standard 2.1
-- **Intended environments**: .NET, Unity3D, game servers, and other fine-grained state systems
+- **Intended environments**: synchronous .NET shared state, Unity3D, game servers, and fine-grained entity systems
 - **GitHub**: <https://github.com/WangHHB/ConcurrentExclusiveLock>
 
 ---
@@ -1015,4 +1072,4 @@ See [`LICENSE-MIT`](LICENSE-MIT) and [`LICENSE-APACHE-2.0`](LICENSE-APACHE-2.0) 
 
 ---
 
-> A compact, high-performance Concurrent/Exclusive synchronization protocol for entity-level state objects, featuring preemptive Exclusive access, in-place upgrade/downgrade, and ContextID/EpochID support.
+> Concurrent / Exclusive synchronization, direct upgrades, and permission workflows across changing workload mixes.

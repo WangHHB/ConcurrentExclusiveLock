@@ -9,325 +9,134 @@
 [![NuGet Downloads](https://img.shields.io/nuget/dt/ConcurrentExclusiveLock.svg)](https://www.nuget.org/packages/ConcurrentExclusiveLock/)
 [![License](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](#许可证)
 
-**ConcurrentExclusiveLock（CEL）是一套面向细粒度状态对象的 Concurrent / Exclusive 同步协议。所有已实现的语言版本均以 C# 版本为语义基准，完整提供抢占式 Exclusive、Concurrent 原地升级、Exclusive 原地降级，以及 Core、Scope 和 Pipeline 三层抽象。其中，Pipeline 可在连续的同步上下文中统一编排多阶段权限、升降级、条件收敛与异常清理，使业务代码只声明各阶段的权限需求，而无需手工维护获取、释放和转换状态。
+ConcurrentExclusiveLock（CEL）是一套高性能并发／独占同步库，支持普通 Concurrent 持有者直接升级，并提供 Core、Scope 和 Pipeline 三层 API。
 
-据目前公开可查的主流实现，CEL 是唯一同时具备以下性质的 Concurrent / Exclusive 同步实现：普通 Concurrent 持有者无需预先声明升级意图、无需进入专用的 upgradeable 模式，也无需预先取得唯一升级资格，即可直接发起可等待的原地 Concurrent → Exclusive 转换；多个普通 Concurrent 持有者还可以同时进入升级序列，并依次收敛为 Exclusive。CEL 同时提供对称的原地 Exclusive → Concurrent 降级。整个升降级协议通过紧凑而对称的状态转换完成，无需引入第三种长期持有权限。
+**完整的权限语义、较高的并行吞吐，以及随着写入比例升高仍接近 `lock` 的性能。** 在公开的 C# 基准测试中，CEL 在大多数具备实际并行工作量的配置下显著领先 `ReaderWriterLockSlim`，在写密集和纯 Exclusive 负载下通常仍接近 `lock`。测试同时覆盖单个热点锁和多个独立锁。
 
-所有语言版本均经过性能基准测试和长期压力测试。其中，C# 参考实现还完成了一套统一的正式测试矩阵，覆盖单核、SMT 开启与关闭、4 vCPU 虚拟机，以及双路 52 核 / 104 线程的 Windows 和 Linux 环境。
-测试结果表明，在存在实际 Concurrent 并行空间、要求 Exclusive 及时取得进展，或需要频繁进行权限收敛的场景中，CEL 在绝大多数配置下均显著领先 ReaderWriterLockSlim；当可并行的兼容工作量足够时，其吞吐也可以超过普通互斥锁。在写密集、纯 Exclusive 或并行空间不足等非优势场景中，CEL 的性能通常仍接近互斥锁，未观察到由协议结构本身引起的系统性退化。
-虽然 CEL 的主要设计目标是大量细粒度状态对象，但测试同时表明，即使作为单个热点大锁使用，它在吞吐、Exclusive 获取延迟、Exclusive 推进能力和 CPU 使用效率等综合指标上，仍可大幅领先传统读写锁。**
+可以先将 CEL 用于同步的读共享／写独占访问；当一项业务需要经过多个权限阶段时，再使用升级、降级和流程编排 API。
 
+## 性能速览
 
-## 语言实现
+同一套锁覆盖从纯 Concurrent 到纯 Exclusive 的完整负载变化：
 
-- [C#](./csharp) — 参考实现
-- [Java](./java/README_CN.md) — 支持 Java 17+，已发布到 [Maven Central](https://central.sonatype.com/artifact/io.github.wanghhb/concurrent-exclusive-lock)
-- [C++](./cpp/README_CN.md) — 核心锁使用 C 实现，C++ 提供 Scope 和 Pipeline 封装。
-- [Rust](./rust/README_CN.md) — 已发布至 [crates.io](https://crates.io/crates/concurrent-exclusive-lock)。
+| Concurrent / Exclusive 操作比例 | CEL / `lock` 吞吐倍率 | CEL / `ReaderWriterLockSlim` 吞吐倍率 |
+|---|---:|---:|
+| 100 / 0 | **4.28×** | **1.66×** |
+| 99.5 / 0.5 | **4.60×** | **2.42×** |
+| 90 / 10 | **2.25×** | **2.56×** |
+| 50 / 50 | **1.10×** | **2.07×** |
+| 30 / 70 | **1.04×** | **2.16×** |
+| 0 / 100 | **1.01×** | **1.57×** |
 
+**测量配置：** Ryzen 7 5700X 固定 4.5 GHz，SMT 开启，Windows 11，.NET 8.0.22；1 个锁、64 个工作线程、640 万次操作、8 MiB 共享内存，每次 Concurrent 或 Exclusive 操作包含 64 个工作步骤。上表来自一次已记录的矩阵运行，倍率衡量包含受保护工作在内的完整操作吞吐。
 
-## 安装
+随着 Exclusive 比例升高，这组配置的性能逐渐贴近 `lock` 基线，同时保留 CEL 的升级和流程编排能力。[完整性能矩阵](#性能测试)还覆盖单核、SMT 关闭、4 vCPU 虚拟机，以及双路 52 核 / 104 线程的 Windows 和 Linux，包含获取延迟、CPU 使用率和 Exclusive 推进能力。结果随负载和拓扑变化，完整表格也保留了 CEL 落后于对照实现的情况。
+
+[基准测试命令与指标定义](./csharp/TestAndBenchmark/README.md)
+
+## 快速开始
+
+### 安装
 
 ```shell
 dotnet add package ConcurrentExclusiveLock
 ```
 
-它适合为玩家、房间、实体、会话、Actor、聚合根或任务上下文分别配置独立锁实例，在大量锁对象并存的情况下，协调：
+NuGet 包面向 **.NET Standard 2.1 和 .NET 8.0**，命名空间为 `IntomicLib`。
 
-- 可并发访问；
-- 排他访问；
-- 抢占式 Exclusive；
-- Concurrent → Exclusive 原地升级；
-- Exclusive → Concurrent 原地降级；
-- ContextID / EpochID 业务状态协同；
-- 权限流程编排；
-- 异常路径自动释放。
+通过 Scope 获取权限，正常返回或发生异常时自动释放：
 
-项目当前以 **C# / .NET** 实现为原始和权威版本。
+```csharp
+using IntomicLib;
 
----
+public sealed class SharedState
+{
+    private readonly ConcurrentExclusiveLock _lock = ConcurrentExclusiveLock.Create();
+    private int _value;
 
-## 目录
+    public int Read()
+    {
+        using (var scope = new ConcurrentExclusiveLockScope(_lock))
+        {
+            scope.AcquireConcurrent();
+            return _value;
+        }
+    }
 
+    public void Set(int value)
+    {
+        using (var scope = new ConcurrentExclusiveLockScope(_lock))
+        {
+            scope.AcquireExclusive();
+            _value = value;
+        }
+    }
+}
+```
+
+多个 Concurrent 调用可以同时执行，Exclusive 调用独占执行。Scope 会记录最终持有的权限，包括升级或降级后的状态，因此更复杂的操作也可以使用相同的 `using` 模式。
+
+CEL 是同步、非递归的锁。每个 Scope 由单个调用上下文持有，依赖其权限的代码在同一线程内完成，不跨越 `await`。更多用法见[使用示例](#使用示例)和[设计边界](#设计边界)。
+
+## 普通持有者直接升级的价值
+
+业务可以先在 Concurrent 权限下检查或准备状态，只在需要提交时申请 Exclusive。**多个普通 Concurrent 持有者可以同时进入升级序列，并依次取得 Exclusive。** 无需提前声明升级意图、进入专用的 upgradeable 模式，或取得唯一升级资格。
+
+协议同时协调转换过程中的准入和推进：
+
+| 能力 | 对业务流程的作用 |
+|---|---|
+| Concurrent → Exclusive 直接升级 | 将调用方的 Concurrent 参与转换为 Exclusive 预留；其他 Concurrent 持有者可以退出，也可以登记自己的升级请求。 |
+| 升级优先 | 存在待处理的 Exclusive 时阻止新的 Concurrent 进入，普通 Exclusive 请求让位于已登记的升级链。 |
+| Exclusive → Concurrent 降级 | 没有其他待处理升级时连续保留 Concurrent；否则先让剩余升级推进，再重新取得 Concurrent。 |
+| ContextID / EpochID 条件 | 将进入 Exclusive 与业务上下文变更或单调递增的阶段更新相结合。 |
+
+这样，并行准备和串行提交可以由同一套权限协议协调。先取得 Exclusive 的升级者可能修改状态，后续升级者应在 Exclusive 下验证相关业务条件。详见[升级与降级语义](#原地升级与降级)。
+
+## 选择 API 层次
+
+| 层次 | 职责 | 典型用法 |
+|---|---|---|
+| **Core — `ConcurrentExclusiveLock`** | 准入、互斥与权限转换 | 底层代码精确控制每次获取、释放和转换 |
+| **Scope — `ConcurrentExclusiveLockScope`** | 记录调用上下文仍持有的权限，并在退出时释放 | 常规业务代码、分支、提前返回和异常路径 |
+| **Pipeline — `ConcurrentExclusiveLockPipeline`** | 声明各阶段权限，决定上下文何处延续、转换或释放后重新申请 | 多阶段准备、提交、发布及条件流程 |
+
+常规访问可以从 Scope 开始。需要直接控制权限时使用 Core；当权限转换本身成为业务流程的一部分时，使用 Pipeline，并由它统一协调 ContextID / EpochID 条件与最终清理。详见[三层 API](#三层-api)和 [Pipeline 示例](#pipeline)。
+
+## 语言实现
+
+四种实现均提供 Core、Scope 和 Pipeline，以 C# 为语义基准。上方性能摘要测量的是 C# 实现，其他语言的用法和测试见各自文档。
+
+- [C# / .NET](./csharp/ConcurrentExclusivePack/README.md) — 参考实现，已发布到 [NuGet](https://www.nuget.org/packages/ConcurrentExclusiveLock/)。
+- [Java](./java/README_CN.md) — 支持 Java 17+，已发布到 [Maven Central](https://central.sonatype.com/artifact/io.github.wanghhb/concurrent-exclusive-lock)。
+- [C / C++](./cpp/README_CN.md) — 核心锁使用 C 实现，C++ 提供 Scope 和 Pipeline 封装。
+- [Rust](./rust/README_CN.md) — 已发布到 [crates.io](https://crates.io/crates/concurrent-exclusive-lock)。
+
+## 详细文档
+
+- [使用示例](#使用示例)
+- [三层 API](#三层-api)
+- [Pipeline](#pipeline)
 - [核心概念](#核心概念)
-- [为什么不是 ReadWriteLock](#为什么不是-readwritelock)
+- [与读写锁的关系](#与读写锁的关系)
 - [抢占式 Exclusive](#抢占式-exclusive)
 - [原地升级与降级](#原地升级与降级)
 - [ContextID 与 EpochID](#contextid-与-epochid)
-- [三层 API](#三层-api)
-- [快速开始](#快速开始)
-- [Pipeline](#pipeline)
 - [同步与异步边界](#同步与异步边界)
 - [低分配设计](#低分配设计)
 - [状态观察](#状态观察)
 - [适用场景](#适用场景)
 - [设计边界](#设计边界)
+- [项目定位](#项目定位)
 - [测试项目](#测试项目)
 - [性能测试](#性能测试)
 - [项目状态](#项目状态)
+- [项目信息](#项目信息)
+- [许可证](#许可证)
 
 ---
 
-## 核心概念
-
-CEL 表达的是**访问权限**，而不是代码内部的读写意图。
-
-### Concurrent
-
-表示当前操作允许与其他 Concurrent 操作同时进入。
-
-Concurrent 区域内不一定只读。只要业务能够保证不同操作之间互不冲突，也可以在 Concurrent 权限下执行修改。
-
-### Exclusive
-
-表示当前操作必须独占进入，不能与任何 Concurrent 或 Exclusive 操作同时执行。
-
-Exclusive 区域内也不一定只写，其中完全可以包含大量读取、校验和计算逻辑。
-
-因此，CEL 关心的问题是：
-
-> 这段业务代码是否允许与其他业务代码并发执行？
-
-而不是：
-
-> 这段代码是在读数据，还是在写数据？
-
----
-
-## 为什么不是 ReadWriteLock
-
-传统 Reader / Writer Lock 主要围绕“读共享、写独占”建立语义。
-
-CEL 面向的是更广泛的实体业务权限模型：
-
-- 多个互不冲突的状态修改可以并发；
-- 某些纯读取逻辑也可能要求独占；
-- 业务可能先并发检查，再升级为唯一提交者；
-- 排他修改完成后，可能需要继续保持连续的 Concurrent 上下文；
-- 权限获取可能与业务 ContextID 或 EpochID 的变更绑定；
-- 一条业务流程中可能连续发生多次权限切换。
-
-因此，CEL 使用 Concurrent / Exclusive，而不是 Read / Write。
-
----
-
-## 抢占式 Exclusive
-
-CEL 的主要特征是**抢占式 Exclusive**。
-
-普通 Concurrent 获取和释放主要依赖轻量原子计数，不进入 `Monitor` 排序队列。
-
-当 Exclusive 请求进入竞争窗口后：
-
-1. 阻止新的 Concurrent 继续进入；
-2. 等待已经持有 Concurrent 的调用者自然退出；
-3. Concurrent 排空后获得 Exclusive；
-4. Exclusive 完成后恢复后续竞争。
-
-这意味着在持续存在 Concurrent 流量时，Exclusive 不需要无限等待一个偶然出现的完全空闲窗口。
-
-普通 Exclusive 获取以及 Concurrent → Exclusive 转换，会借用 `Monitor` 的互斥、等待、唤醒和排他排序能力。
-
-CEL 不额外承诺严格 FIFO，也不承诺比 `Monitor` 更强的调度公平性。线程实际执行顺序仍会受到操作系统调度、CPU 拓扑、缓存状态、系统负载和业务执行时长影响。
-
----
-
-## 原地升级与降级
-
-### Concurrent → Exclusive
-
-典型业务流程通常不是简单的“加锁后修改”，而是：
-
-1. 先以 Concurrent 权限读取或检查状态；
-2. 判断是否需要修改；
-3. 尝试成为该业务条件下的唯一提交者；
-4. 成功后进入 Exclusive；
-5. 完成修改。
-
-CEL 支持从当前 Concurrent 上下文直接收敛到 Exclusive，而不需要先释放 Concurrent，再从外部重新竞争。
-
-当前提供的业务条件升级方法包括：
-
-```csharp
-ConcurrentToExclusive();
-TryConcurrentToExclusiveWithSwitchContextID(int newContextID);
-TryConcurrentToExclusiveWithRaiseEpochID(int newEpochID);
-```
-
-升级成功后，当前调用上下文持有 Exclusive。
-
-升级失败时，原 Concurrent 权限已经由协议自动释放，不应再次调用 `ReleaseConcurrent()`。
-
-### Exclusive → Concurrent
-
-完成独占修改后，可以直接降级：
-
-```csharp
-scope.ExclusiveToConcurrent();
-```
-
-降级后：
-
-- 不再持有 Exclusive；
-- 继续持有 Concurrent；
-- 可以继续执行依赖连续访问上下文的后续逻辑；
-- 避免先释放 Exclusive、再重新申请 Concurrent 产生新的竞争窗口。
-
----
-
-## ContextID 与 EpochID
-
-CEL 可以在锁状态之外关联两个业务标识。
-
-### ContextID
-
-`ContextID` 用于表达当前业务上下文身份，例如：
-
-- 当前房间实例；
-- 当前战斗上下文；
-- 当前玩家会话；
-- 当前数据加载批次；
-- 当前任务所有者；
-- 当前逻辑事务上下文。
-
-```csharp
-bool changed = locker.SwitchContextID(newContextID);
-```
-
-当新值与当前值相同时，`SwitchContextID` 返回 `false`。
-
-它可以用于识别同一业务上下文，避免同一上下文重复执行初始化、切换、提交或 Exclusive 逻辑。
-
-### EpochID
-
-`EpochID` 用于表达只能向前推进的生命周期、版本或阶段，例如：
-
-- 实体版本；
-- 房间 Tick；
-- 战斗阶段；
-- 快照版本；
-- 生命周期代次；
-- 数据处理批次。
-
-```csharp
-bool raised = locker.RaiseEpochID(newEpochID);
-```
-
-只有当 `newEpochID` 大于当前值时，推进才会成功。
-
-ContextID 和 EpochID 都是锁协议之外的业务状态。它们的含义、分配方式、清理规则和生命周期由调用方负责。
-
----
-
-## 三层 API
-
-项目提供三个层次的 API。
-
-### 1. ConcurrentExclusiveLock
-
-`ConcurrentExclusiveLock` 是底层同步协议。
-
-```csharp
-private readonly ConcurrentExclusiveLock _locker = ConcurrentExclusiveLock.Create();
-```
-
-它是一个 `readonly struct`，真实共享状态保存在内部 Token 中。
-
-复制 `ConcurrentExclusiveLock` 值不会复制锁状态，复制后的值仍然引用同一份内部同步状态。
-
-默认初始化实例不可用，必须通过静态方法Create()创建：
-
-```csharp
-ConcurrentExclusiveLock.Create();
-```
-
-常用 API：
-
-```csharp
-AcquireConcurrent();
-TryAcquireConcurrent();
-
-AcquireExclusive();
-TryAcquireExclusive();
-
-ReleaseConcurrent();
-ReleaseExclusive();
-
-ExclusiveToConcurrent();
-
-SwitchContextID(...);
-RaiseEpochID(...);
-
-ConcurrentToExclusive();
-TryConcurrentToExclusiveWithSwitchContextID(...);
-TryConcurrentToExclusiveWithRaiseEpochID(...);
-```
-
-这一层适合需要精确控制每次权限获取、释放和转换的底层代码。
-
----
-
-### 2. ConcurrentExclusiveLockScope
-
-`ConcurrentExclusiveLockScope` 是基于 `using` 的权限生命周期封装。
-
-```csharp
-using (var scope = new ConcurrentExclusiveLockScope(_locker))
-{
-    scope.AcquireConcurrent();
-
-    ReadEntityState();
-}
-```
-
-调用方可以手动释放当前权限。
-
-如果没有手动释放，`Dispose()` 会根据 Scope 最终记录的权限状态自动释放 Concurrent 或 Exclusive。
-
-Scope 主要用于减少以下路径中的释放错误：
-
-- 异常；
-- 提前返回；
-- 多分支退出；
-- Concurrent → Exclusive 升级；
-- Exclusive → Concurrent 降级；
-- Try 操作失败后的状态变化。
-
-`Dispose()` 只释放当前 Scope 仍然持有的访问权限，不会还原或清理 ContextID / EpochID。
-
-Scope 是具有释放责任的可变值类型，只应由单个调用上下文持有和操作。
-
-不要复制 Scope、按值传递 Scope、跨线程操作 Scope，或分别操作同一个 Scope 的多个副本。
-
----
-
-### 3. ConcurrentExclusiveLockPipeline
-
-`ConcurrentExclusiveLockPipeline` 用一组顺序 Segment 描述完整的权限工作流。
-
-每个 Segment 声明：
-
-- 当前业务代码；
-- 当前段需要的访问权限；
-- 可选的 ContextID 或 EpochID 条件。
-
-Pipeline 根据上一段成功持有的权限，自动决定：
-
-- 延续当前权限；
-- 释放并重新申请；
-- 原地升级；
-- 原地降级；
-- 条件失败时跳过当前段；
-- 以 None 状态继续后续流程。
-
-Pipeline 的定位可以概括为：
-
-> Entity Permission Workflow Orchestration  
-> 实体访问权限工作流编排
-
----
-
-## 快速开始
+## 使用示例
 
 ### Concurrent
 
@@ -443,6 +252,114 @@ public void RebuildAndPublish()
 
 ---
 
+## 三层 API
+
+项目提供三个层次的 API。
+
+### 1. ConcurrentExclusiveLock
+
+`ConcurrentExclusiveLock` 是底层同步协议。
+
+```csharp
+private readonly ConcurrentExclusiveLock _locker = ConcurrentExclusiveLock.Create();
+```
+
+它是一个 `readonly struct`，真实共享状态保存在内部 Token 中。
+
+复制 `ConcurrentExclusiveLock` 值不会复制锁状态，复制后的值仍然引用同一份内部同步状态。
+
+默认初始化实例不可用，必须通过静态方法Create()创建：
+
+```csharp
+ConcurrentExclusiveLock.Create();
+```
+
+常用 API：
+
+```csharp
+AcquireConcurrent();
+TryAcquireConcurrent();
+
+AcquireExclusive();
+TryAcquireExclusive();
+
+ReleaseConcurrent();
+ReleaseExclusive();
+
+ExclusiveToConcurrent();
+
+SwitchContextID(...);
+RaiseEpochID(...);
+
+ConcurrentToExclusive();
+TryConcurrentToExclusiveWithSwitchContextID(...);
+TryConcurrentToExclusiveWithRaiseEpochID(...);
+```
+
+这一层适合需要精确控制每次权限获取、释放和转换的底层代码。
+
+---
+
+### 2. ConcurrentExclusiveLockScope
+
+`ConcurrentExclusiveLockScope` 是基于 `using` 的权限生命周期封装。
+
+```csharp
+using (var scope = new ConcurrentExclusiveLockScope(_locker))
+{
+    scope.AcquireConcurrent();
+
+    ReadEntityState();
+}
+```
+
+调用方可以手动释放当前权限。
+
+如果没有手动释放，`Dispose()` 会根据 Scope 最终记录的权限状态自动释放 Concurrent 或 Exclusive。
+
+Scope 主要用于减少以下路径中的释放错误：
+
+- 异常；
+- 提前返回；
+- 多分支退出；
+- Concurrent → Exclusive 升级；
+- Exclusive → Concurrent 降级；
+- Try 操作失败后的状态变化。
+
+`Dispose()` 只释放当前 Scope 仍然持有的访问权限，不会还原或清理 ContextID / EpochID。
+
+Scope 是具有释放责任的可变值类型，只应由单个调用上下文持有和操作。
+
+不要复制 Scope、按值传递 Scope、跨线程操作 Scope，或分别操作同一个 Scope 的多个副本。
+
+---
+
+### 3. ConcurrentExclusiveLockPipeline
+
+`ConcurrentExclusiveLockPipeline` 用一组顺序 Segment 描述完整的权限工作流。
+
+每个 Segment 声明：
+
+- 当前业务代码；
+- 当前段需要的访问权限；
+- 可选的 ContextID 或 EpochID 条件。
+
+Pipeline 根据上一段成功持有的权限，自动决定：
+
+- 延续当前权限；
+- 释放并重新申请；
+- 原地升级；
+- 原地降级；
+- 条件失败时跳过当前段；
+- 以 None 状态继续后续流程。
+
+Pipeline 的定位可以概括为：
+
+> Entity Permission Workflow Orchestration  
+> 实体访问权限工作流编排
+
+---
+
 ## Pipeline
 
 ### 示例
@@ -508,6 +425,154 @@ ConvergeConcurrent 表示延续现有的 Concurrent 上下文、尝试通过将 
 ConvergeExclusive 表示延续现有的 Exclusive 上下文、通过将 Concurrent 上下文原地升级来建立 Exclusive 上下文，或新获取一个 Exclusive 上下文。
 
 TryApplyIDConvergeExclusive 表示在业务 ID 成功应用后，延续现有的 Exclusive 上下文、建立 Exclusive 上下文，或新获取一个 Exclusive 上下文。
+
+---
+
+## 核心概念
+
+CEL 表达的是**访问权限**，而不是代码内部的读写意图。
+
+### Concurrent
+
+表示当前操作允许与其他 Concurrent 操作同时进入。
+
+Concurrent 区域内不一定只读。只要业务能够保证不同操作之间互不冲突，也可以在 Concurrent 权限下执行修改。
+
+### Exclusive
+
+表示当前操作必须独占进入，不能与任何 Concurrent 或 Exclusive 操作同时执行。
+
+Exclusive 区域内也不一定只写，其中完全可以包含大量读取、校验和计算逻辑。
+
+因此，CEL 关心的问题是：
+
+> 这段业务代码是否允许与其他业务代码并发执行？
+
+而不是：
+
+> 这段代码是在读数据，还是在写数据？
+
+---
+
+## 与读写锁的关系
+
+<a id="为什么不是-readwritelock"></a>
+
+CEL 可以用于常见的“读共享、写独占”模式。Concurrent 允许相互兼容的操作并行，Exclusive 要求当前操作独占执行。
+
+这两个名称描述访问兼容性。只要调用方保证修改互不冲突，Concurrent 区域内也可以修改状态；Exclusive 区域内同样可以包含读取、校验、计算和写入。读写锁的共享模式也依赖调用方保证并发操作相互兼容。
+
+CEL 将这两种访问权限与多个普通持有者直接升级、升级优先顺序、降级行为、业务 ID 条件和权限流程编排相结合，支持先并发检查、再独占提交、随后继续 Concurrent 访问的业务。后续章节详细定义这些转换和顺序规则。
+
+---
+
+## 抢占式 Exclusive
+
+CEL 的主要特征是**抢占式 Exclusive**。
+
+普通 Concurrent 获取和释放主要依赖轻量原子计数，不进入 `Monitor` 排序队列。
+
+当 Exclusive 请求进入竞争窗口后：
+
+1. 阻止新的 Concurrent 继续进入；
+2. 等待已经持有 Concurrent 的调用者自然退出；
+3. Concurrent 排空后获得 Exclusive；
+4. Exclusive 完成后恢复后续竞争。
+
+这意味着在持续存在 Concurrent 流量时，Exclusive 不需要无限等待一个偶然出现的完全空闲窗口。
+
+普通 Exclusive 获取以及 Concurrent → Exclusive 转换，会借用 `Monitor` 的互斥、等待、唤醒和排他排序能力。
+
+CEL 不额外承诺严格 FIFO，也不承诺比 `Monitor` 更强的调度公平性。线程实际执行顺序仍会受到操作系统调度、CPU 拓扑、缓存状态、系统负载和业务执行时长影响。
+
+---
+
+## 原地升级与降级
+
+### Concurrent → Exclusive
+
+典型业务流程通常不是简单的“加锁后修改”，而是：
+
+1. 先以 Concurrent 权限读取或检查状态；
+2. 判断是否需要修改；
+3. 尝试成为该业务条件下的唯一提交者；
+4. 成功后进入 Exclusive；
+5. 完成修改。
+
+CEL 支持从当前 Concurrent 上下文直接收敛到 Exclusive。调用方将自身的 Concurrent 参与转换为 Exclusive 预留，多个普通 Concurrent 持有者可以同时登记升级，随后依次独占执行。新的 Concurrent 和普通 Exclusive 请求不能插入已登记的升级链。
+
+升级期间，调用方已退出活跃 Concurrent 计数，并在取得 Exclusive 后继续业务代码。其他升级者可能先完成修改，因此需要在 Exclusive 下复核提交所依赖的业务条件。
+
+当前提供的业务条件升级方法包括：
+
+```csharp
+ConcurrentToExclusive();
+TryConcurrentToExclusiveWithSwitchContextID(int newContextID);
+TryConcurrentToExclusiveWithRaiseEpochID(int newEpochID);
+```
+
+升级成功后，当前调用上下文持有 Exclusive。
+
+条件升级返回 `false` 时，原 Concurrent 权限已被消耗，调用方不再持有权限，不应再次调用 `ReleaseConcurrent()`。升级等待被 `ThreadInterruptedException` 中断时，同样不再持有权限；已经变更的 ContextID / EpochID 不会回滚。Scope 会同步更新持有状态并继续抛出异常。
+
+### Exclusive → Concurrent
+
+完成独占修改后，可以直接降级：
+
+```csharp
+scope.ExclusiveToConcurrent();
+```
+
+正常返回后，调用方持有 Concurrent，不再持有 Exclusive。上下文是否连续取决于降级时的升级竞争：
+
+- 没有其他待处理升级时，连续保留 Concurrent，避免先释放再申请产生的访问窗口；
+- 还有其他升级者等待时，先结束当前访问上下文，让剩余升级者推进，再重新申请 Concurrent。
+
+因此，普通 Exclusive 获取后的降级可连续保留 Concurrent；升级链中的降级可能需要等待其他升级完成。若重新申请 Concurrent 被 `ThreadInterruptedException` 中断，原 Exclusive 已释放，调用方不持有任何权限。
+
+---
+
+## ContextID 与 EpochID
+
+CEL 可以在锁状态之外关联两个业务标识。
+
+### ContextID
+
+`ContextID` 用于表达当前业务上下文身份，例如：
+
+- 当前房间实例；
+- 当前战斗上下文；
+- 当前玩家会话；
+- 当前数据加载批次；
+- 当前任务所有者；
+- 当前逻辑事务上下文。
+
+```csharp
+bool changed = locker.SwitchContextID(newContextID);
+```
+
+当新值与当前值相同时，`SwitchContextID` 返回 `false`。
+
+它可以用于识别同一业务上下文，避免同一上下文重复执行初始化、切换、提交或 Exclusive 逻辑。
+
+### EpochID
+
+`EpochID` 用于表达只能向前推进的生命周期、版本或阶段，例如：
+
+- 实体版本；
+- 房间 Tick；
+- 战斗阶段；
+- 快照版本；
+- 生命周期代次；
+- 数据处理批次。
+
+```csharp
+bool raised = locker.RaiseEpochID(newEpochID);
+```
+
+只有当 `newEpochID` 大于当前值时，推进才会成功。
+
+ContextID 和 EpochID 都是锁协议之外的业务状态。它们的含义、分配方式、清理规则和生命周期由调用方负责。
 
 ---
 
@@ -651,8 +716,9 @@ int ObservedContention;
 
 ## 适用场景
 
-CEL 尤其适合以下模型：
+CEL 可用于单个共享状态的同步访问，也适合大量独立状态对象。典型场景包括：
 
+- 需要读共享／写独占访问的共享状态，以及读写比例随业务变化的负载；
 - 游戏服务器中的玩家、房间、战斗和地图实体；
 - Unity3D 中严格控制堆分配的状态访问；
 - Actor 或类 Actor 实体；
@@ -705,21 +771,11 @@ CEL 是一套同步、非递归的访问权限协议。
 
 ## 项目定位
 
-ConcurrentExclusiveLock 不试图成为适用于所有问题的通用锁，也不是对传统 Reader / Writer Lock 的简单复制。
+CEL 以较低的常态路径成本，将 Concurrent / Exclusive 同步与权限转换组合起来，支持单个共享状态锁，也支持为实体、会话、缓存条目等大量状态对象分别配置独立锁。
 
-它重点解决的是：
+Core 定义同步协议，Scope 管理控制流中的权限持有状态，Pipeline 表达业务阶段之间的权限变化。性能矩阵使用同一实现，覆盖 Concurrent 密集、混合、Exclusive 密集负载，以及多阶段转换。
 
-> 在大量细粒度状态对象上，以较低常态成本表达 Concurrent / Exclusive 权限，并把抢占、升级、降级、业务 ID 收敛和连续流程编排组合为一套完整协议。
-
-项目当前包含：
-
-- `ConcurrentExclusiveLock`
-- `ConcurrentExclusiveLockScope`
-- `ConcurrentExclusiveLockPipeline`
-- 完整 XML API 注释
-- 同步 Segment 误用保护
-- BenchmarkDotNet 性能测试
-- 长时间随机调用压力测试
+项目包含三层 API、XML API 文档、同步 Segment 误用保护、语义正确性测试、BenchmarkDotNet 基准测试和长期随机压力测试。同步约定见[设计边界](#设计边界)，验证范围见[测试项目](#测试项目)。
 
 ---
 
@@ -744,6 +800,7 @@ ConcurrentExclusiveLock 不试图成为适用于所有问题的通用锁，也�
 
 测试代码的作用是辅助验证当前实现、扩大路径覆盖范围并提供性能观察数据；核心同步协议、API 设计与语义定义以 C# / .NET 主项目实现为准。
 
+---
 
 ## 性能测试
 
@@ -1005,7 +1062,7 @@ Pipeline 已完成约 **240 小时随机调用压力测试**。
 - **作者**：王弈博（YiBoWang）
 - **原始实现**：C# / .NET
 - **兼容目标**：.NET 8.0、.NET Standard 2.1
-- **适用环境**：.NET、Unity3D、游戏服务器及其他细粒度状态系统
+- **适用环境**：.NET 同步共享状态、Unity3D、游戏服务器及细粒度实体系统
 - **GitHub**：<https://github.com/WangHHB/ConcurrentExclusiveLock>
 
 ---
@@ -1017,4 +1074,4 @@ ConcurrentExclusiveLock 采用 MIT License 或 Apache License 2.0 双重许可�
 
 ---
 
-> A compact, high-performance Concurrent/Exclusive synchronization protocol for entity-level state objects, featuring preemptive Exclusive access, in-place upgrade/downgrade, and ContextID/EpochID support.
+> 面向不同负载比例的 Concurrent / Exclusive 同步、普通持有者直接升级与权限流程编排。
