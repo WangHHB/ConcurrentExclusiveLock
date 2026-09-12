@@ -156,6 +156,9 @@
              当运行时同时存在的 Concurrent 数量超过内部限制时抛出。
              当前实现支持 31-bit 并发计数空间，该限制在实际运行环境中基本不可能触发。
              </exception>
+            <exception cref="T:System.Threading.ThreadInterruptedException">
+            等待 Concurrent 权限时被中断。本次调用未获得 Concurrent 权限。
+            </exception>
         </member>
         <member name="M:IntomicLib.ConcurrentExclusiveLock.TryAcquireConcurrent(System.Int32)">
              <summary>
@@ -212,6 +215,9 @@
              返回 0 表示未在指定时间内获得 Concurrent。
              </returns>
              <exception cref="T:System.ArgumentException">当 <paramref name="maxConcurrent"/> 小于 1 时抛出。</exception>
+            <exception cref="T:System.Threading.ThreadInterruptedException">
+            等待 Concurrent 权限时被中断。本次调用未获得 Concurrent 权限。
+            </exception>
         </member>
         <member name="M:IntomicLib.ConcurrentExclusiveLock.ReleaseConcurrent">
              <summary>
@@ -238,6 +244,9 @@
              获得 Exclusive 后，调用者必须在后续调用 <c>ReleaseExclusive()</c> 释放，
              或通过 <c>ExclusiveToConcurrent()</c> 降级为 Concurrent 后再按 Concurrent 协议释放。
              </remarks>
+            <exception cref="T:System.Threading.ThreadInterruptedException">
+            等待进入排他 Monitor 时被中断。本次调用未获得 Exclusive 权限。
+            </exception>
         </member>
         <member name="M:IntomicLib.ConcurrentExclusiveLock.TryAcquireExclusive(System.Boolean)">
              <summary>
@@ -270,6 +279,9 @@
              true 表示已获得 Exclusive；
              false 表示未获得 Exclusive。
              </returns>
+            <exception cref="T:System.Threading.ThreadInterruptedException">
+            当 <paramref name="preemptConcurrent"/> 为 true 时，等待进入排他 Monitor 的过程被中断。本次调用未获得 Exclusive 权限。
+            </exception>
         </member>
         <member name="M:IntomicLib.ConcurrentExclusiveLock.TryAcquireExclusive(System.Int32)">
              <summary>
@@ -295,6 +307,9 @@
              true 表示已获得 Exclusive；
              false 表示未在指定时间内获得 Exclusive。
              </returns>
+            <exception cref="T:System.Threading.ThreadInterruptedException">
+            等待进入排他 Monitor 时被中断。本次调用未获得 Exclusive 权限。
+            </exception>
         </member>
         <member name="M:IntomicLib.ConcurrentExclusiveLock.ReleaseExclusive">
              <summary>
@@ -334,6 +349,9 @@
              并且仍有其他升级请求等待执行，降级时会切断当前访问上下文并重新申请 Concurrent，
              以便其余升级请求继续获得 Exclusive。
              </remarks>
+            <exception cref="T:System.Threading.ThreadInterruptedException">
+            在升级竞争中重新获取 Concurrent 权限时被中断。原 Exclusive 权限已释放，调用方当前不持有任何权限。
+            </exception>
         </member>
         <member name="M:IntomicLib.ConcurrentExclusiveLock.ConcurrentToExclusive">
              <summary>
@@ -359,6 +377,9 @@
              应优先使用 <see cref="M:IntomicLib.ConcurrentExclusiveLock.TryConcurrentToExclusiveWithSwitchContextID(System.Int32)"/>
              或 <see cref="M:IntomicLib.ConcurrentExclusiveLock.TryConcurrentToExclusiveWithRaiseEpochID(System.Int32)"/>。
              </remarks>
+            <exception cref="T:System.Threading.ThreadInterruptedException">
+            等待进入 Monitor 时被中断。升级预留已撤销，调用方当前不持有任何权限。
+            </exception>
         </member>
         <member name="M:IntomicLib.ConcurrentExclusiveLock.TryConcurrentToExclusiveWithSwitchContextID(System.Int32)">
              <summary>
@@ -389,6 +410,9 @@
              true 表示 ContextID 已切换且当前已获得 Exclusive；
              false 表示 ContextID 未发生变化，原 Concurrent 权限已自动释放。
              </returns>
+            <exception cref="T:System.Threading.ThreadInterruptedException">
+            等待进入 Monitor 时被中断。调用方当前不持有任何权限；已应用的 ContextID 不会恢复。
+            </exception>
         </member>
         <member name="M:IntomicLib.ConcurrentExclusiveLock.TryConcurrentToExclusiveWithRaiseEpochID(System.Int32)">
              <summary>
@@ -422,6 +446,9 @@
              true 表示 EpochID 已成功推进且当前已获得 Exclusive；
              false 表示 EpochID 未推进，原 Concurrent 权限已自动释放。
              </returns>
+            <exception cref="T:System.Threading.ThreadInterruptedException">
+            等待进入 Monitor 时被中断。调用方当前不持有任何权限；已应用的 EpochID 不会恢复。
+            </exception>
         </member>
         <member name="M:IntomicLib.ConcurrentExclusiveLock._FreeRelease(System.Int64)">
             <summary>
@@ -509,6 +536,12 @@
             </remarks>
             <param name="segments">要顺序执行的 Pipeline 段。</param>
             <returns>表示本次 Pipeline 执行过程的任务。</returns>
+            <exception cref="T:System.Threading.ThreadInterruptedException">
+            工作线程上的锁等待或业务段被中断。
+            异常保存在返回的 Task 中，在 await 该 Task 时重新抛出。
+            Pipeline 持有的权限均已释放，后续业务段不再执行。
+            已经应用的 ContextID 或 EpochID 不会恢复。
+            </exception>
         </member>
         <member name="M:IntomicLib.ConcurrentExclusiveLockPipeline.DoPipeline(IntomicLib.ConcurrentExclusiveLockSegment[])">
              <summary>
@@ -527,6 +560,11 @@
              退出此方法时，会释放最终仍持有的访问权限。
              </remarks>
              <param name="segments">要顺序执行的 Pipeline 段。</param>
+            <exception cref="T:System.Threading.ThreadInterruptedException">
+            锁等待或正在执行的业务段被中断。
+            Pipeline 持有的权限均已释放，后续业务段不再执行。
+            已经应用的 ContextID 或 EpochID 不会恢复。
+            </exception>
         </member>
         <member name="T:IntomicLib.ConcurrentExclusiveAccessMode">
             <summary>
@@ -961,6 +999,9 @@
              当运行时同时存在的 Concurrent 数量超过内部限制时抛出。
              当前实现支持 31-bit 并发计数空间，该限制在实际运行环境中基本不可能触发。
              </exception>
+            <exception cref="T:System.Threading.ThreadInterruptedException">
+            等待 Concurrent 权限时被中断。本次调用未获得或记录 Concurrent 权限。
+            </exception>
         </member>
         <member name="M:IntomicLib.ConcurrentExclusiveLockScope.TryAcquireConcurrent(System.Int32)">
              <summary>
@@ -1017,6 +1058,9 @@
              返回 0 表示未在指定时间内获得 Concurrent。
              </returns>
              <exception cref="T:System.ArgumentException">当 <paramref name="maxConcurrent"/> 小于 1 时抛出。></exception>
+            <exception cref="T:System.Threading.ThreadInterruptedException">
+            等待 Concurrent 权限时被中断。本次调用未获得或记录 Concurrent 权限。
+            </exception>
         </member>
         <member name="M:IntomicLib.ConcurrentExclusiveLockScope.ReleaseConcurrent">
              <summary>
@@ -1046,6 +1090,9 @@
              或通过 <c>ExclusiveToConcurrent()</c> 降级为 Concurrent 后再按 Concurrent 协议释放；
              如果未手动释放，将由 <see cref="M:IntomicLib.ConcurrentExclusiveLockScope.Dispose"/> 按 scope 当前最终状态释放。
              </remarks>
+            <exception cref="T:System.Threading.ThreadInterruptedException">
+            等待进入排他 Monitor 时被中断。本次调用未获得或记录 Exclusive 权限。
+            </exception>
         </member>
         <member name="M:IntomicLib.ConcurrentExclusiveLockScope.TryAcquireExclusive(System.Boolean)">
              <summary>
@@ -1076,6 +1123,9 @@
              true 表示已获得 Exclusive；
              false 表示未获得 Exclusive。
              </returns>
+            <exception cref="T:System.Threading.ThreadInterruptedException">
+            当 <paramref name="preemptConcurrent"/> 为 true 时，等待进入排他 Monitor 的过程被中断。本次调用未获得或记录 Exclusive 权限。
+            </exception>
         </member>
         <member name="M:IntomicLib.ConcurrentExclusiveLockScope.TryAcquireExclusive(System.Int32)">
              <summary>
@@ -1102,6 +1152,9 @@
              true 表示已获得 Exclusive；
              false 表示未在指定时间内获得 Exclusive。
              </returns>
+            <exception cref="T:System.Threading.ThreadInterruptedException">
+            等待进入排他 Monitor 时被中断。本次调用未获得或记录 Exclusive 权限。
+            </exception>
         </member>
         <member name="M:IntomicLib.ConcurrentExclusiveLockScope.ReleaseExclusive">
              <summary>
@@ -1140,6 +1193,9 @@
              此方法用于在完成独占修改后，继续保持一个连续的 Concurrent 访问上下文，
              避免先释放 Exclusive 再重新申请 Concurrent 造成访问窗口。
              </remarks>
+            <exception cref="T:System.Threading.ThreadInterruptedException">
+            重新获取 Concurrent 权限时被中断。当前 Scope 不持有任何权限。
+            </exception>
         </member>
         <member name="M:IntomicLib.ConcurrentExclusiveLockScope.ConcurrentToExclusive">
              <summary>
@@ -1162,6 +1218,9 @@
              应优先使用 <see cref="M:IntomicLib.ConcurrentExclusiveLockScope.TryConcurrentToExclusiveWithSwitchContextID(System.Int32)"/>
              或 <see cref="M:IntomicLib.ConcurrentExclusiveLockScope.TryConcurrentToExclusiveWithRaiseEpochID(System.Int32)"/>。
              </remarks>
+            <exception cref="T:System.Threading.ThreadInterruptedException">
+            等待 Exclusive 权限时被中断。当前 Scope 不持有任何权限。
+            </exception>
         </member>
         <member name="M:IntomicLib.ConcurrentExclusiveLockScope.TryConcurrentToExclusiveWithSwitchContextID(System.Int32)">
              <summary>
@@ -1183,6 +1242,9 @@
              失败后，原 Concurrent 权限已经释放，不应再调用 <c>ReleaseConcurrent()</c>。
              多个 Concurrent 升级后的 Exclusive 将保持串行执行。
              </remarks>
+            <exception cref="T:System.Threading.ThreadInterruptedException">
+            等待 Exclusive 权限时被中断。当前 Scope 不持有任何权限；ContextID 不会恢复。
+            </exception>
         </member>
         <member name="M:IntomicLib.ConcurrentExclusiveLockScope.TryConcurrentToExclusiveWithRaiseEpochID(System.Int32)">
              <summary>
@@ -1207,6 +1269,9 @@
              失败后，原 Concurrent 权限已经释放，不应再调用 <c>ReleaseConcurrent()</c>。
              多个 Concurrent 升级后的 Exclusive 将保持串行执行。
              </remarks>
+            <exception cref="T:System.Threading.ThreadInterruptedException">
+            等待 Exclusive 权限时被中断。当前 Scope 不持有任何权限；EpochID 不会恢复。
+            </exception>
         </member>
         <member name="M:IntomicLib.ConcurrentExclusiveLockScope.Dispose">
             <summary>

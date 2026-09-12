@@ -156,6 +156,9 @@
              Thrown when the number of Concurrent holders present at runtime exceeds the internal limit.
              The current implementation supports a 31-bit concurrent count space; this limit is effectively unreachable in normal environments.
              </exception>
+            <exception cref="T:System.Threading.ThreadInterruptedException">
+            A blocking wait for Concurrent was interrupted. This call has not acquired Concurrent permission.
+            </exception>
         </member>
         <member name="M:IntomicLib.ConcurrentExclusiveLock.TryAcquireConcurrent(System.Int32)">
              <summary>
@@ -212,6 +215,9 @@
              Returns 0 if Concurrent was not acquired within the specified time.
              </returns>
              <exception cref="T:System.ArgumentException">Thrown when <paramref name="maxConcurrent"/> is less than 1.</exception>
+            <exception cref="T:System.Threading.ThreadInterruptedException">
+            A blocking wait for Concurrent was interrupted. This call has not acquired Concurrent permission.
+            </exception>
         </member>
         <member name="M:IntomicLib.ConcurrentExclusiveLock.ReleaseConcurrent">
              <summary>
@@ -238,6 +244,9 @@
              After acquiring Exclusive, the caller must later call <c>ReleaseExclusive()</c> to release it,
              or downgrade through <c>ExclusiveToConcurrent()</c> and then release according to the Concurrent protocol.
              </remarks>
+            <exception cref="T:System.Threading.ThreadInterruptedException">
+            Waiting to enter the exclusive Monitor was interrupted. This call has not acquired Exclusive permission.
+            </exception>
         </member>
         <member name="M:IntomicLib.ConcurrentExclusiveLock.TryAcquireExclusive(System.Boolean)">
              <summary>
@@ -270,6 +279,10 @@
              true True if Exclusive was acquired;
              false false if Exclusive was not acquired.
              </returns>
+            <exception cref="T:System.Threading.ThreadInterruptedException">
+            When <paramref name="preemptConcurrent" /> is true, waiting to enter the exclusive Monitor was interrupted.
+            This call has not acquired Exclusive permission.
+            </exception>
         </member>
         <member name="M:IntomicLib.ConcurrentExclusiveLock.TryAcquireExclusive(System.Int32)">
              <summary>
@@ -295,6 +308,9 @@
              true True if Exclusive was acquired;
              false false if Exclusive was not acquired within the specified time.
              </returns>
+            <exception cref="T:System.Threading.ThreadInterruptedException">
+            Waiting to enter the exclusive Monitor was interrupted. This call has not acquired Exclusive permission.
+            </exception>
         </member>
         <member name="M:IntomicLib.ConcurrentExclusiveLock.ReleaseExclusive">
              <summary>
@@ -334,6 +350,10 @@
              and other upgrade requests are still waiting, the downgrade cuts the current access context and reacquires Concurrent
              so that the remaining upgrade requests can continue acquiring Exclusive.
              </remarks>
+            <exception cref="T:System.Threading.ThreadInterruptedException">
+            Reacquiring Concurrent under upgrade contention was interrupted.
+            The original Exclusive permission has been released and the caller holds no permission.
+            </exception>
         </member>
         <member name="M:IntomicLib.ConcurrentExclusiveLock.ConcurrentToExclusive">
              <summary>
@@ -359,6 +379,9 @@
              prefer <see cref="M:IntomicLib.ConcurrentExclusiveLock.TryConcurrentToExclusiveWithSwitchContextID(System.Int32)"/>
              or <see cref="M:IntomicLib.ConcurrentExclusiveLock.TryConcurrentToExclusiveWithRaiseEpochID(System.Int32)"/>.
              </remarks>
+            <exception cref="T:System.Threading.ThreadInterruptedException">
+            Waiting for Monitor was interrupted. The upgrade reservation is released and the caller holds no permission.
+            </exception>
         </member>
         <member name="M:IntomicLib.ConcurrentExclusiveLock.TryConcurrentToExclusiveWithSwitchContextID(System.Int32)">
              <summary>
@@ -389,6 +412,9 @@
              true True if ContextID was switched and Exclusive has been acquired;
              false false if ContextID did not change and the original Concurrent permission was released automatically.
              </returns>
+            <exception cref="T:System.Threading.ThreadInterruptedException">
+            Waiting for Monitor was interrupted. The caller holds no permission; the applied ContextID is not restored.
+            </exception>
         </member>
         <member name="M:IntomicLib.ConcurrentExclusiveLock.TryConcurrentToExclusiveWithRaiseEpochID(System.Int32)">
              <summary>
@@ -422,6 +448,9 @@
              true True if EpochID was successfully advanced and Exclusive has been acquired;
              false false if EpochID was not advanced and the original Concurrent permission was released automatically.
              </returns>
+            <exception cref="T:System.Threading.ThreadInterruptedException">
+            Waiting for Monitor was interrupted. The caller holds no permission; the applied EpochID is not restored.
+            </exception>
         </member>
         <member name="M:IntomicLib.ConcurrentExclusiveLock._FreeRelease(System.Int64)">
             <summary>
@@ -509,6 +538,12 @@
             </remarks>
             <param name="segments">The Pipeline segments to execute in sequence.</param>
             <returns>A task representing this Pipeline execution.</returns>
+            <exception cref="T:System.Threading.ThreadInterruptedException">
+            A lock wait or a segment running on the worker thread was interrupted.
+            The exception is stored in the returned task and is rethrown when the task is awaited.
+            Any permission held by the Pipeline is released and subsequent segments are not executed.
+            ContextID or EpochID values already applied are not restored.
+            </exception>
         </member>
         <member name="M:IntomicLib.ConcurrentExclusiveLockPipeline.DoPipeline(IntomicLib.ConcurrentExclusiveLockSegment[])">
              <summary>
@@ -527,6 +562,11 @@
              when this method exits, any access permission still held is released.
              </remarks>
              <param name="segments">The Pipeline segments to execute in sequence.</param>
+            <exception cref="T:System.Threading.ThreadInterruptedException">
+            A lock wait or an executing segment was interrupted.
+            Any permission held by the Pipeline is released and subsequent segments are not executed.
+            ContextID or EpochID values already applied are not restored.
+            </exception>
         </member>
         <member name="T:IntomicLib.ConcurrentExclusiveAccessMode">
             <summary>
@@ -961,6 +1001,9 @@
              Thrown when the number of simultaneously held Concurrent permissions exceeds the internal limit at runtime.
              The current implementation supports a 31-bit Concurrent count space; this limit is effectively unreachable in practical runtime environments.
              </exception>
+            <exception cref="T:System.Threading.ThreadInterruptedException">
+            A blocking wait for Concurrent was interrupted. This call has not acquired or recorded Concurrent permission.
+            </exception>
         </member>
         <member name="M:IntomicLib.ConcurrentExclusiveLockScope.TryAcquireConcurrent(System.Int32)">
              <summary>
@@ -1017,6 +1060,9 @@
              returns 0 if Concurrent permission was not acquired within the specified time.
              </returns>
              <exception cref="T:System.ArgumentException">Thrown when <paramref name="maxConcurrent"/> is less than 1.</exception>
+            <exception cref="T:System.Threading.ThreadInterruptedException">
+            A blocking wait for Concurrent was interrupted. This call has not acquired or recorded Concurrent permission.
+            </exception>
         </member>
         <member name="M:IntomicLib.ConcurrentExclusiveLockScope.ReleaseConcurrent">
              <summary>
@@ -1046,6 +1092,9 @@
              or downgrade it to Concurrent through <c>ExclusiveToConcurrent()</c> and then release it according to the Concurrent protocol;
              if it is not released explicitly, <see cref="M:IntomicLib.ConcurrentExclusiveLockScope.Dispose"/> releases it according to the scope's final state.
              </remarks>
+            <exception cref="T:System.Threading.ThreadInterruptedException">
+            Waiting to enter the exclusive Monitor was interrupted. This call has not acquired or recorded Exclusive permission.
+            </exception>
         </member>
         <member name="M:IntomicLib.ConcurrentExclusiveLockScope.TryAcquireExclusive(System.Boolean)">
              <summary>
@@ -1076,6 +1125,10 @@
              true means Exclusive permission was acquired;
              false means Exclusive permission was not acquired.
              </returns>
+            <exception cref="T:System.Threading.ThreadInterruptedException">
+            When <paramref name="preemptConcurrent" /> is true, waiting to enter the exclusive Monitor was interrupted.
+            This call has not acquired or recorded Exclusive permission.
+            </exception>
         </member>
         <member name="M:IntomicLib.ConcurrentExclusiveLockScope.TryAcquireExclusive(System.Int32)">
              <summary>
@@ -1102,6 +1155,9 @@
              true means Exclusive permission was acquired;
              false means Exclusive permission was not acquired within the specified time.
              </returns>
+            <exception cref="T:System.Threading.ThreadInterruptedException">
+            Waiting to enter the exclusive Monitor was interrupted. This call has not acquired or recorded Exclusive permission.
+            </exception>
         </member>
         <member name="M:IntomicLib.ConcurrentExclusiveLockScope.ReleaseExclusive">
              <summary>
@@ -1140,6 +1196,9 @@
              This method preserves a continuous Concurrent access context after Exclusive modification is complete,
              avoiding the access window that would result from releasing Exclusive and then reacquiring Concurrent.
              </remarks>
+            <exception cref="T:System.Threading.ThreadInterruptedException">
+            Reacquiring Concurrent was interrupted. The scope holds no permission.
+            </exception>
         </member>
         <member name="M:IntomicLib.ConcurrentExclusiveLockScope.ConcurrentToExclusive">
              <summary>
@@ -1162,6 +1221,9 @@
              prefer <see cref="M:IntomicLib.ConcurrentExclusiveLockScope.TryConcurrentToExclusiveWithSwitchContextID(System.Int32)"/>
              or <see cref="M:IntomicLib.ConcurrentExclusiveLockScope.TryConcurrentToExclusiveWithRaiseEpochID(System.Int32)"/>.
              </remarks>
+            <exception cref="T:System.Threading.ThreadInterruptedException">
+            Waiting for Exclusive was interrupted. The scope holds no permission.
+            </exception>
         </member>
         <member name="M:IntomicLib.ConcurrentExclusiveLockScope.TryConcurrentToExclusiveWithSwitchContextID(System.Int32)">
              <summary>
@@ -1183,6 +1245,9 @@
              After failure, the original Concurrent permission has already been released and <c>ReleaseConcurrent()</c> must not be called again.
              Exclusive regions produced by multiple Concurrent upgrades remain serialized.
              </remarks>
+            <exception cref="T:System.Threading.ThreadInterruptedException">
+            Waiting for Exclusive was interrupted. The scope holds no permission; ContextID is not restored.
+            </exception>
         </member>
         <member name="M:IntomicLib.ConcurrentExclusiveLockScope.TryConcurrentToExclusiveWithRaiseEpochID(System.Int32)">
              <summary>
@@ -1207,6 +1272,9 @@
              After failure, the original Concurrent permission has already been released and <c>ReleaseConcurrent()</c> must not be called again.
              Exclusive regions produced by multiple Concurrent upgrades remain serialized.
              </remarks>
+            <exception cref="T:System.Threading.ThreadInterruptedException">
+            Waiting for Exclusive was interrupted. The scope holds no permission; EpochID is not restored.
+            </exception>
         </member>
         <member name="M:IntomicLib.ConcurrentExclusiveLockScope.Dispose">
             <summary>
