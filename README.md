@@ -11,13 +11,39 @@
 
 ConcurrentExclusiveLock (CEL) is a high-performance synchronization library for shared and exclusive access, with direct upgrades from ordinary Concurrent holders and three API layers: Core, Scope, and Pipeline.
 
-**Rich permission semantics, strong parallel throughput, and near-`lock` performance as workloads become write-heavy.** In the published C# benchmarks, CEL substantially outperforms `ReaderWriterLockSlim` across most configurations with meaningful parallel work, while generally staying close to `lock` in write-heavy and fully Exclusive workloads. Both a single hot lock and multiple independent locks are covered.
+**Rich permission semantics, near-`lock` write-heavy throughput, and strong concurrent performance on dual-socket NUMA servers.** In the published C# benchmarks, CEL substantially outperforms `ReaderWriterLockSlim` across most configurations with meaningful parallel work, while generally staying close to `lock` in write-heavy and fully Exclusive workloads. Both a single hot lock and multiple independent locks are covered.
 
 Use CEL for synchronous reader/writer-style access, then use its upgrade, downgrade, and workflow APIs when an operation needs several permission stages.
 
 ## Performance at a Glance
 
-The same lock handles the full range from Concurrent-only to Exclusive-only work:
+The published results cover workstations and dual-socket NUMA servers, across the full range from Concurrent-only to Exclusive-only work.
+
+### Dual-Socket NUMA Server
+
+**2 sockets, 2 NUMA nodes, 52 physical cores, 104 hardware threads:** Intel Xeon Platinum 8269CY, Ubuntu 26.04, .NET 8.0.29. Both topologies use 64 workers in total: `1×64` shares one hot lock; `8×8` uses eight independent locks with eight workers each.
+
+| Concurrent / Exclusive | 1×64: CEL / `lock` | 1×64: CEL / RWLS | 8×8: CEL / `lock` | 8×8: CEL / RWLS |
+|---|---:|---:|---:|---:|
+| 100 / 0 | **7.63×** | **5.30×** | **7.10×** | **1.20×** |
+| 99.5 / 0.5 | **5.28×** | **6.77×** | **10.23×** | **5.97×** |
+| 90 / 10 | **2.22×** | **9.89×** | **4.72×** | **11.82×** |
+| 50 / 50 | **0.99×** | **4.75×** | **2.00×** | **7.50×** |
+| 30 / 70 | **1.14×** | **5.37×** | **1.60×** | **6.33×** |
+| 0 / 100 | **0.99×** | **2.10×** | **1.01×** | **1.99×** |
+
+RWLS means `ReaderWriterLockSlim`. Each case completes 6.4 million operations with 8 MiB of shared memory per lock and 64 work steps per Concurrent or Exclusive operation. The ratios measure complete-operation throughput, including protected work, from the recorded run.
+
+At 90/10, CEL reaches **9.89× RWLS throughput with one hot lock** and **11.82× with eight independent locks**. At 100% Exclusive, throughput remains approximately equal to `lock` in both topologies. These results demonstrate strong performance on the measured multi-node server across both concentrated contention and independent state objects.
+
+- **CPU usage under contention:** in the `1×64` 90/10 throughput case, CEL records 6.3% CPU usage versus RWLS's 37.3%, while completing operations 9.89× as fast. CPU percentages are normalized to the available logical processors.
+- **Exclusive acquisition latency:** in the separate `8×8` 90/10 latency test, mean acquisition time is **7.576 µs** for CEL versus **151.731 µs** for RWLS; RWLS takes **20.03×** as long on average.
+
+[Complete dual-socket NUMA report: environment, throughput, CPU usage, latency, Pipeline, and upgrade contention](https://github.com/WangHHB/ConcurrentExclusiveLock/blob/main/CEL_Intel%20Platinum%208269CY%20%40%202.50GHz%2C%202%20Sockets%2052%20Cores%20104%20Threads%2C%20Ubuntu%2026.04.md)
+
+### Workstation: 8 Cores, SMT Enabled
+
+The Ryzen workstation shows how throughput changes across the same operation ratios:
 
 | Concurrent / Exclusive operations | CEL / `lock` throughput | CEL / `ReaderWriterLockSlim` throughput |
 |---|---:|---:|
@@ -30,7 +56,7 @@ The same lock handles the full range from Concurrent-only to Exclusive-only work
 
 **Measured configuration:** Ryzen 7 5700X at 4.5 GHz, SMT enabled, Windows 11, .NET 8.0.22; one lock with 64 workers, 6.4 million operations, 8 MiB of shared memory, and 64 work steps per Concurrent or Exclusive operation. These are complete-operation throughput ratios, including protected work, from one recorded matrix run.
 
-As the Exclusive share grows, this configuration approaches the `lock` baseline while retaining CEL's upgrade and workflow capabilities. The [full performance matrix](#performance) also covers a single core, SMT disabled, a 4-vCPU VM, and dual-socket 52-core / 104-thread Windows and Linux systems, with acquisition latency, CPU usage, and Exclusive progress results. Results vary with workload and topology; the complete tables include the cases where CEL trails a baseline.
+As the Exclusive share grows, this configuration approaches the `lock` baseline while retaining CEL's upgrade and workflow capabilities. The [full performance matrix](#performance) also includes a single core, SMT disabled, a 4-vCPU VM, and a Windows / Linux comparison on the same dual-socket server, with acquisition latency, CPU usage, and Exclusive progress results. Results vary with workload and topology; the complete tables include the cases where CEL trails a baseline.
 
 [Benchmark commands and measurement definitions](./csharp/TestAndBenchmark/README.md)
 
