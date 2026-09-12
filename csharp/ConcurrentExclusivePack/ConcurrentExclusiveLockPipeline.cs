@@ -53,6 +53,12 @@ namespace IntomicLib
         /// </remarks>
         /// <param name="segments">The Pipeline segments to execute in sequence.</param>
         /// <returns>A task representing this Pipeline execution.</returns>
+        /// <exception cref="System.Threading.ThreadInterruptedException">
+        /// A lock wait or a segment running on the worker thread was interrupted.
+        /// The exception is stored in the returned task and is rethrown when the task is awaited.
+        /// Any permission held by the Pipeline is released and subsequent segments are not executed.
+        /// ContextID or EpochID values already applied are not restored.
+        /// </exception>
         public Task DoPipelineAsync(params ConcurrentExclusiveLockSegment[] segments)
         {
             ConcurrentExclusiveLockPipeline pipeline = this;
@@ -75,6 +81,11 @@ namespace IntomicLib
         /// when this method exits, any access permission still held is released.
         /// </remarks>
         /// <param name="segments">The Pipeline segments to execute in sequence.</param>
+        /// <exception cref="System.Threading.ThreadInterruptedException">
+        /// A lock wait or an executing segment was interrupted.
+        /// Any permission held by the Pipeline is released and subsequent segments are not executed.
+        /// ContextID or EpochID values already applied are not restored.
+        /// </exception>
         public void DoPipeline(params ConcurrentExclusiveLockSegment[] segments)
         {
             using (ConcurrentExclusiveLockScope scope = new ConcurrentExclusiveLockScope(Locker))

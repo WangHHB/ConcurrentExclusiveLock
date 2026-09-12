@@ -54,16 +54,6 @@ using System.Threading;
 
 namespace IntomicLib
 {
-    internal class CELToken
-    {
-        public long Counter;  // The lower 32 bits store the Concurrent count; the upper 32 bits store the Exclusive count.
-
-        public int _ContextID;  // Business context ID.
-
-        public int _EpochID;  // Monotonically advancing lifecycle version ID.
-    }
-
-
     /// <summary>
     /// Provides a high-performance, non-recursive synchronization lock based on Concurrent / Exclusive access permissions.
     /// </summary>
@@ -96,6 +86,15 @@ namespace IntomicLib
     /// </remarks>
     public readonly struct ConcurrentExclusiveLock
     {
+        internal class CELToken
+        {
+            public long Counter;  // The lower 32 bits store the Concurrent count; the upper 32 bits store the Exclusive count.
+
+            public int _ContextID;  // Business context ID.
+
+            public int _EpochID;  // Monotonically advancing lifecycle version ID.
+        }
+
         /// <summary>
         /// The maximum number of Concurrent holders supported by a single lock instance.
         /// </summary>
@@ -333,6 +332,9 @@ namespace IntomicLib
         /// Thrown when the number of Concurrent holders present at runtime exceeds the internal limit.
         /// The current implementation supports a 31-bit concurrent count space; this limit is effectively unreachable in normal environments.
         /// </exception>
+        /// <exception cref="ThreadInterruptedException">
+        /// A blocking wait for Concurrent was interrupted. This call has not acquired Concurrent permission.
+        /// </exception>
         public int AcquireConcurrent(int maxConcurrent = MaxConcurrent)
         {
             int adjustTurn = 0;
@@ -470,6 +472,9 @@ namespace IntomicLib
         /// Returns 0 if Concurrent was not acquired within the specified time.
         /// </returns>
         /// <exception cref="ArgumentException">Thrown when <paramref name="maxConcurrent"/> is less than 1.</exception>
+        /// <exception cref="ThreadInterruptedException">
+        /// A blocking wait for Concurrent was interrupted. This call has not acquired Concurrent permission.
+        /// </exception>
         public int TryAcquireConcurrent(int millisecondsTimeout, int maxConcurrent = MaxConcurrent)
         {
             if (maxConcurrent < 1)
@@ -478,6 +483,7 @@ namespace IntomicLib
             }
 
             if (millisecondsTimeout < 0) { return AcquireConcurrent(maxConcurrent); }
+            if (millisecondsTimeout == 0) { return TryAcquireConcurrent(maxConcurrent); }
 
             int adjustTurn = 0;
             long counter;
@@ -575,6 +581,9 @@ namespace IntomicLib
         /// After acquiring Exclusive, the caller must later call <c>ReleaseExclusive()</c> to release it,
         /// or downgrade through <c>ExclusiveToConcurrent()</c> and then release according to the Concurrent protocol.
         /// </remarks>
+        /// <exception cref="ThreadInterruptedException">
+        /// Waiting to enter the exclusive Monitor was interrupted. This call has not acquired Exclusive permission.
+        /// </exception>
         public void AcquireExclusive()
         {
             int adjustTurn = 0;
@@ -643,6 +652,10 @@ namespace IntomicLib
         /// true True if Exclusive was acquired;
         /// false false if Exclusive was not acquired.
         /// </returns>
+        /// <exception cref="ThreadInterruptedException">
+        /// When <paramref name="preemptConcurrent"/> is true, waiting to enter the exclusive Monitor was interrupted.
+        /// This call has not acquired Exclusive permission.
+        /// </exception>
         public bool TryAcquireExclusive(bool preemptConcurrent = true)
         {
             int adjustTurn = 0;
@@ -726,6 +739,9 @@ namespace IntomicLib
         /// true True if Exclusive was acquired;
         /// false false if Exclusive was not acquired within the specified time.
         /// </returns>
+        /// <exception cref="ThreadInterruptedException">
+        /// Waiting to enter the exclusive Monitor was interrupted. This call has not acquired Exclusive permission.
+        /// </exception>
         public bool TryAcquireExclusive(int millisecondsTimeout)
         {
             int adjustTurn = 0;
@@ -847,6 +863,10 @@ namespace IntomicLib
         /// and other upgrade requests are still waiting, the downgrade cuts the current access context and reacquires Concurrent
         /// so that the remaining upgrade requests can continue acquiring Exclusive.
         /// </remarks>
+        /// <exception cref="ThreadInterruptedException">
+        /// Reacquiring Concurrent under upgrade contention was interrupted.
+        /// The original Exclusive permission has been released and the caller holds no permission.
+        /// </exception>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void ExclusiveToConcurrent()
         {
@@ -886,6 +906,9 @@ namespace IntomicLib
         /// prefer <see cref="TryConcurrentToExclusiveWithSwitchContextID(int)"/>
         /// or <see cref="TryConcurrentToExclusiveWithRaiseEpochID(int)"/>.
         /// </remarks>
+        /// <exception cref="ThreadInterruptedException">
+        /// Waiting for Monitor was interrupted. The upgrade reservation is released and the caller holds no permission.
+        /// </exception>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void ConcurrentToExclusive()
         {
@@ -898,7 +921,15 @@ namespace IntomicLib
                     AdjustWait2(ref adjustTurn);
                 }
             }
-            Monitor.Enter(token);
+            try
+            {
+                Monitor.Enter(token);
+            }
+            catch (ThreadInterruptedException)
+            {
+                Interlocked.Add(ref token.Counter, -Exclusive_Add);
+                throw;
+            }
         }
 
         /// <summary>
@@ -929,6 +960,9 @@ namespace IntomicLib
         /// true True if ContextID was switched and Exclusive has been acquired;
         /// false false if ContextID did not change and the original Concurrent permission was released automatically.
         /// </returns>
+        /// <exception cref="ThreadInterruptedException">
+        /// Waiting for Monitor was interrupted. The caller holds no permission; the applied ContextID is not restored.
+        /// </exception>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool TryConcurrentToExclusiveWithSwitchContextID(int newContextID)
         {
@@ -943,7 +977,15 @@ namespace IntomicLib
             }
             if (SwitchContextID(newContextID))
             {
-                Monitor.Enter(token);
+                try
+                {
+                    Monitor.Enter(token);
+                }
+                catch (ThreadInterruptedException)
+                {
+                    Interlocked.Add(ref token.Counter, -Exclusive_Add);
+                    throw;
+                }
                 return true;
             }
             else
@@ -984,6 +1026,9 @@ namespace IntomicLib
         /// true True if EpochID was successfully advanced and Exclusive has been acquired;
         /// false false if EpochID was not advanced and the original Concurrent permission was released automatically.
         /// </returns>
+        /// <exception cref="ThreadInterruptedException">
+        /// Waiting for Monitor was interrupted. The caller holds no permission; the applied EpochID is not restored.
+        /// </exception>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool TryConcurrentToExclusiveWithRaiseEpochID(int newEpochID)
         {
@@ -998,7 +1043,15 @@ namespace IntomicLib
             }
             if (RaiseEpochID(newEpochID))
             {
-                Monitor.Enter(token);
+                try
+                {
+                    Monitor.Enter(token);
+                }
+                catch (ThreadInterruptedException)
+                {
+                    Interlocked.Add(ref token.Counter, -Exclusive_Add);
+                    throw;
+                }
                 return true;
             }
             else

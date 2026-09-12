@@ -37,6 +37,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="ConcurrentExclusiveLockLite.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
 
     <None Include="..\..\LICENSE-MIT" Pack="true" PackagePath="\" Link="LICENSE-MIT">
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Runtime.CompilerServices;
+using System.Threading;
 
 namespace IntomicLib
 {
@@ -156,6 +157,9 @@ namespace IntomicLib
         /// Thrown when the number of simultaneously held Concurrent permissions exceeds the internal limit at runtime.
         /// The current implementation supports a 31-bit Concurrent count space; this limit is effectively unreachable in practical runtime environments.
         /// </exception>
+        /// <exception cref="ThreadInterruptedException">
+        /// A blocking wait for Concurrent was interrupted. This call has not acquired or recorded Concurrent permission.
+        /// </exception>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public int AcquireConcurrent(int maxConcurrent = ConcurrentExclusiveLock.MaxConcurrent)
         {
@@ -227,6 +231,9 @@ namespace IntomicLib
         /// returns 0 if Concurrent permission was not acquired within the specified time.
         /// </returns>
         /// <exception cref="ArgumentException">Thrown when <paramref name="maxConcurrent"/> is less than 1.</exception>
+        /// <exception cref="ThreadInterruptedException">
+        /// A blocking wait for Concurrent was interrupted. This call has not acquired or recorded Concurrent permission.
+        /// </exception>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public int TryAcquireConcurrent(int millisecondsTimeout, int maxConcurrent = ConcurrentExclusiveLock.MaxConcurrent)
         {
@@ -270,6 +277,9 @@ namespace IntomicLib
         /// or downgrade it to Concurrent through <c>ExclusiveToConcurrent()</c> and then release it according to the Concurrent protocol;
         /// if it is not released explicitly, <see cref="Dispose"/> releases it according to the scope's final state.
         /// </remarks>
+        /// <exception cref="ThreadInterruptedException">
+        /// Waiting to enter the exclusive Monitor was interrupted. This call has not acquired or recorded Exclusive permission.
+        /// </exception>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void AcquireExclusive()
         {
@@ -305,6 +315,10 @@ namespace IntomicLib
         /// true means Exclusive permission was acquired;
         /// false means Exclusive permission was not acquired.
         /// </returns>
+        /// <exception cref="ThreadInterruptedException">
+        /// When <paramref name="preemptConcurrent"/> is true, waiting to enter the exclusive Monitor was interrupted.
+        /// This call has not acquired or recorded Exclusive permission.
+        /// </exception>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool TryAcquireExclusive(bool preemptConcurrent = true)
         {
@@ -340,6 +354,9 @@ namespace IntomicLib
         /// true means Exclusive permission was acquired;
         /// false means Exclusive permission was not acquired within the specified time.
         /// </returns>
+        /// <exception cref="ThreadInterruptedException">
+        /// Waiting to enter the exclusive Monitor was interrupted. This call has not acquired or recorded Exclusive permission.
+        /// </exception>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool TryAcquireExclusive(int millisecondsTimeout)
         {
@@ -392,10 +409,21 @@ namespace IntomicLib
         /// This method preserves a continuous Concurrent access context after Exclusive modification is complete,
         /// avoiding the access window that would result from releasing Exclusive and then reacquiring Concurrent.
         /// </remarks>
+        /// <exception cref="ThreadInterruptedException">
+        /// Reacquiring Concurrent was interrupted. The scope holds no permission.
+        /// </exception>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void ExclusiveToConcurrent()
         {
-            Locker.ExclusiveToConcurrent();
+            try
+            {
+                Locker.ExclusiveToConcurrent();
+            }
+            catch (ThreadInterruptedException)
+            {
+                CounterMate -= ConcurrentExclusiveLock.Exclusive_Add;
+                throw;
+            }
             CounterMate -= ConcurrentExclusiveLock.Converge_Add;
         }
 
@@ -419,10 +447,21 @@ namespace IntomicLib
         /// prefer <see cref="TryConcurrentToExclusiveWithSwitchContextID(int)"/>
         /// or <see cref="TryConcurrentToExclusiveWithRaiseEpochID(int)"/>.
         /// </remarks>
+        /// <exception cref="ThreadInterruptedException">
+        /// Waiting for Exclusive was interrupted. The scope holds no permission.
+        /// </exception>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void ConcurrentToExclusive()
         {
-            Locker.ConcurrentToExclusive();
+            try
+            {
+                Locker.ConcurrentToExclusive();
+            }
+            catch (ThreadInterruptedException)
+            {
+                CounterMate--;
+                throw;
+            }
             CounterMate += ConcurrentExclusiveLock.Converge_Add;
         }
 
@@ -445,10 +484,22 @@ namespace IntomicLib
         /// After failure, the original Concurrent permission has already been released and <c>ReleaseConcurrent()</c> must not be called again.
         /// Exclusive regions produced by multiple Concurrent upgrades remain serialized.
         /// </remarks>
+        /// <exception cref="ThreadInterruptedException">
+        /// Waiting for Exclusive was interrupted. The scope holds no permission; ContextID is not restored.
+        /// </exception>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool TryConcurrentToExclusiveWithSwitchContextID(int newContextID)
         {
-            bool success = Locker.TryConcurrentToExclusiveWithSwitchContextID(newContextID);
+            bool success;
+            try
+            {
+                success = Locker.TryConcurrentToExclusiveWithSwitchContextID(newContextID);
+            }
+            catch (ThreadInterruptedException)
+            {
+                CounterMate--;
+                throw;
+            }
             if (success)
             {
                 CounterMate += ConcurrentExclusiveLock.Converge_Add;
@@ -482,10 +533,22 @@ namespace IntomicLib
         /// After failure, the original Concurrent permission has already been released and <c>ReleaseConcurrent()</c> must not be called again.
         /// Exclusive regions produced by multiple Concurrent upgrades remain serialized.
         /// </remarks>
+        /// <exception cref="ThreadInterruptedException">
+        /// Waiting for Exclusive was interrupted. The scope holds no permission; EpochID is not restored.
+        /// </exception>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool TryConcurrentToExclusiveWithRaiseEpochID(int newEpochID)
         {
-            bool success = Locker.TryConcurrentToExclusiveWithRaiseEpochID(newEpochID);
+            bool success;
+            try
+            {
+                success = Locker.TryConcurrentToExclusiveWithRaiseEpochID(newEpochID);
+            }
+            catch (ThreadInterruptedException)
+            {
+                CounterMate--;
+                throw;
+            }
             if (success)
             {
                 CounterMate += ConcurrentExclusiveLock.Converge_Add;
